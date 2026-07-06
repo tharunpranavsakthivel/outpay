@@ -1,0 +1,77 @@
+/*
+ * Tailwind v4 entry point. `@config` loads tailwind.config.ts so all the
+ * theme.extend mappings there (colors, fontFamily, fontSize, borderRadius,
+ * boxShadow, spacing → all wired to design-system CSS variables) keep
+ * working exactly as under Tailwind v3 — v4 supports JS/TS config via this
+ * directive for backward compatibility. Adjust the relative path if your
+ * tailwind.config.ts lives somewhere else relative to this file.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700;800&family=Source+Code+Pro:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+/*
+ * Import the Outpay Design System token files verbatim (copied from the
+ * design system project's tokens/ folder). These define every CSS custom
+ * property referenced by tailwind.config.ts and by heading-* utility
+ * classes below. Do not edit values here — change the design system source
+ * and re-copy if the palette or scale needs to change.
+ */
+@import "./tokens/colors-primitives.css";
+@import "./tokens/colors-semantic.css";
+@import "./tokens/theme-light.css";
+@import "./tokens/theme-dark.css";
+@import "./tokens/spacing.css";
+@import "./tokens/shadows.css";
+@import "./tokens/fonts.css";
+@import "./tokens/typography.css";
+
+@config "../../tailwind.config.ts";
+
+/* typography.css (imported above) already defines body/code font rules and
+   the .heading-* utility classes (heading-title, heading-meta, etc.) used
+   throughout the views — nothing further needed here for type. */
+
+@keyframes op-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes op-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes op-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes op-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes op-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

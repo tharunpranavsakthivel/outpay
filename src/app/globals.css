@@ -1,0 +1,218 @@
+/*
+ * Tailwind v4 entry point for the Outpay app. The @config directive keeps the
+ * design-system mappings in tailwind.config.ts active while the token imports
+ * define the CSS custom properties consumed by the app views.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700;800&family=Source+Code+Pro:wght@400;500;600&display=swap");
+@import "tailwindcss";
+@import "../styles/tokens/fonts.css";
+@import "../styles/tokens/colors-primitives.css";
+@import "../styles/tokens/colors-semantic.css";
+@import "../styles/tokens/theme-light.css";
+@import "../styles/tokens/theme-dark.css";
+@import "../styles/tokens/spacing.css";
+@import "../styles/tokens/shadows.css";
+@import "../styles/tokens/typography.css";
+
+@config "../../tailwind.config.ts";
+
+@keyframes op-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes op-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes op-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes op-panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes op-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes op-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes op-float-card {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes op-scan-line {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes op-mega-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes op-pulse-dot {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes op-flow-line {
+  from {
+    transform: translateX(-20%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+.op-hero-in {
+  animation: op-rise-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.op-hero-in-delay {
+  animation: op-rise-in 820ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+.op-float-card {
+  animation: op-float-card 7s ease-in-out infinite;
+}
+
+.op-scan-line {
+  animation: op-scan-line 4.8s ease-in-out infinite;
+}
+
+.op-reveal {
+  animation: op-rise-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.op-mega-menu {
+  animation: op-mega-menu-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top center;
+}
+
+.op-pulse-dot {
+  animation: op-pulse-dot 2.4s ease-in-out infinite;
+}
+
+.op-flow-line {
+  animation: op-flow-line 3.8s ease-in-out infinite;
+}
+
+.op-range {
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) 0 var(--range-progress, 50%),
+    var(--background-surface-200) var(--range-progress, 50%) 100%
+  );
+  outline: none;
+}
+
+.op-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 3px solid var(--background);
+  background: var(--primary);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.op-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 3px solid var(--background);
+  background: var(--primary);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.op-range:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+@supports (animation-timeline: view()) {
+  .op-reveal {
+    animation-timeline: view();
+    animation-range: entry 8% cover 28%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-hero-in,
+  .op-hero-in-delay,
+  .op-float-card,
+  .op-scan-line,
+  .op-reveal,
+  .op-mega-menu,
+  .op-pulse-dot,
+  .op-flow-line {
+    animation: none;
+  }
+}
