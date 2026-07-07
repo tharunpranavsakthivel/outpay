@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Copy, Info } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/Button";
 import { StatusPill } from "../components/ui/StatusPill";
+import { useToast } from "../components/ui/Toast";
 import type { PublicCheckoutData } from "../lib/dashboard/types";
 
 const STATUS_CONFIG = {
@@ -44,6 +45,7 @@ export default function CustomerCheckout({
   const [checkout, setCheckout] = useState(initialData);
   const [copied, setCopied] = useState(false);
   const config = STATUS_CONFIG[checkout.status];
+  const toast = useToast();
 
   useEffect(() => {
     if (checkout.status === "paid" || checkout.status === "expired") {
@@ -72,7 +74,8 @@ export default function CustomerCheckout({
   const copyAddress = () => {
     navigator.clipboard
       ?.writeText(checkout.walletAddress)
-      .catch(() => undefined);
+      .then(() => toast.success("Wallet address copied."))
+      .catch(() => toast.error("Unable to copy wallet address."));
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };

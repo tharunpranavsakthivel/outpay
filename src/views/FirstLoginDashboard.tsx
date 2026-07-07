@@ -30,6 +30,9 @@ export default function FirstLoginDashboard({
       <DashboardSidebar
         active="dashboard"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background flex items-center justify-between px-8 py-4 border-b border-border">

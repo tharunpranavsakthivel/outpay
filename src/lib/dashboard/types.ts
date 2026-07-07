@@ -14,6 +14,9 @@ export interface MerchantShellData {
   status: string;
   verificationStatus: string;
   unreadNotifications: number;
+  logoUrl: string | null;
+  userAvatarColor: string | null;
+  userFullName: string | null;
 }
 
 export interface NotificationItem {

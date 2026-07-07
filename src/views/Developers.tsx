@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/Table";
+import { useToast } from "../components/ui/Toast";
 import type {
   ApiKeyListItem,
   DevelopersPageData,
@@ -79,6 +80,7 @@ export default function Developers({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const modeKeys = useMemo(
     () => apiKeys.filter((apiKey) => apiKey.environment === mode),
@@ -112,7 +114,9 @@ export default function Developers({
         ?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(createKeyError ?? "Unable to create API key.");
+        const message = createKeyError ?? "Unable to create API key.";
+        setErrorMessage(message);
+        toast.error(message);
         return;
       }
 
@@ -123,6 +127,7 @@ export default function Developers({
       setSaveMessage(
         "API key created. Copy the secret now; it will not be shown again.",
       );
+      toast.success("API key created.");
     });
   };
 
@@ -155,7 +160,9 @@ export default function Developers({
         .error?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(saveWebhookError ?? "Unable to save webhook.");
+        const message = saveWebhookError ?? "Unable to save webhook.";
+        setErrorMessage(message);
+        toast.error(message);
         return;
       }
 
@@ -167,6 +174,7 @@ export default function Developers({
       setSaveMessage(
         "Webhook endpoint saved. Copy the rotated signing secret now; only the prefix is persisted.",
       );
+      toast.success("Webhook endpoint saved.");
     });
   };
 
@@ -185,7 +193,9 @@ export default function Developers({
         .error?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(sendWebhookError ?? "Unable to queue test delivery.");
+        const message = sendWebhookError ?? "Unable to queue test delivery.";
+        setErrorMessage(message);
+        toast.error(message);
         return;
       }
 
@@ -201,6 +211,7 @@ export default function Developers({
 
       setDeliveries(deliveriesPayload.webhookDeliveries);
       setSaveMessage("Test webhook queued.");
+      toast.success("Test webhook queued.");
     });
   };
 
@@ -209,6 +220,9 @@ export default function Developers({
       <DashboardSidebar
         active="developers"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 border-b border-border bg-background px-4 pt-4 sm:px-8">

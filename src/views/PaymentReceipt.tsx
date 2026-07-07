@@ -4,6 +4,7 @@ import { Check, CheckCircle2, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/Button";
 import { StatusPill } from "../components/ui/StatusPill";
+import { useToast } from "../components/ui/Toast";
 import {
   formatDashboardDate,
   truncateIdentifier,
@@ -21,6 +22,7 @@ export default function PaymentReceipt({
 }) {
   const [copied, setCopied] = useState(false);
   const [redirectSeconds, setRedirectSeconds] = useState(5);
+  const toast = useToast();
 
   useEffect(() => {
     if (!initialData.redirectUrl) {
@@ -47,7 +49,10 @@ export default function PaymentReceipt({
       return;
     }
 
-    navigator.clipboard?.writeText(initialData.txHash).catch(() => undefined);
+    navigator.clipboard
+      ?.writeText(initialData.txHash)
+      .then(() => toast.success("Transaction hash copied."))
+      .catch(() => toast.error("Unable to copy transaction hash."));
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };

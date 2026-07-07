@@ -3,6 +3,7 @@
 import { AlertTriangle, Lock, ShieldCheck } from "lucide-react";
 import { useState, useTransition } from "react";
 import { DashboardSidebar } from "../components/layout/DashboardSidebar";
+import { StoreLogoUploader } from "../components/settings/StoreLogoUploader";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -13,6 +14,7 @@ import {
 } from "../components/ui/Card";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
+import { useToast } from "../components/ui/Toast";
 import { formatDashboardDate } from "../lib/dashboard/format";
 import type { StoreSettingsData } from "../lib/dashboard/types";
 
@@ -44,12 +46,11 @@ export default function Settings({
   const [storeSecretPrefix, setStoreSecretPrefix] = useState(
     initialData.webhookSecretPrefix,
   );
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastWebhookTestAt, setLastWebhookTestAt] = useState(
     initialData.lastWebhookTestAt,
   );
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const walletConfirmDisabled = !walletConfirmed || !newWalletAddress;
   const deactivateDisabled =
@@ -57,9 +58,6 @@ export default function Settings({
 
   const saveProfile = () => {
     startTransition(async () => {
-      setErrorMessage(null);
-      setSaveMessage(null);
-
       const response = await fetch("/api/settings/store-profile", {
         body: JSON.stringify({
           description: storeDesc,
@@ -79,19 +77,16 @@ export default function Settings({
         ?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(profileError ?? "Unable to save profile.");
+        toast.error(profileError ?? "Unable to save profile.");
         return;
       }
 
-      setSaveMessage("Store profile saved.");
+      toast.success("Store profile saved.");
     });
   };
 
   const saveWallet = () => {
     startTransition(async () => {
-      setErrorMessage(null);
-      setSaveMessage(null);
-
       const response = await fetch("/api/settings/payout-wallet", {
         body: JSON.stringify({
           confirmed: walletConfirmed,
@@ -109,21 +104,18 @@ export default function Settings({
         ?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(walletError ?? "Unable to update wallet.");
+        toast.error(walletError ?? "Unable to update wallet.");
         return;
       }
 
       setWalletAddress((payload as { walletAddress: string }).walletAddress);
       setModal(null);
-      setSaveMessage("Primary payout wallet updated.");
+      toast.success("Primary payout wallet updated.");
     });
   };
 
   const saveWebhook = () => {
     startTransition(async () => {
-      setErrorMessage(null);
-      setSaveMessage(null);
-
       const response = await fetch("/api/developers/webhook-endpoint", {
         body: JSON.stringify({
           url: webhookUrl,
@@ -143,7 +135,7 @@ export default function Settings({
         ?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(webhookError ?? "Unable to update webhook.");
+        toast.error(webhookError ?? "Unable to update webhook.");
         return;
       }
 
@@ -151,15 +143,12 @@ export default function Settings({
         (payload as { endpoint: { signing_secret_prefix?: string } }).endpoint
           .signing_secret_prefix ?? null,
       );
-      setSaveMessage("Webhook endpoint saved and signing secret rotated.");
+      toast.success("Webhook endpoint saved and signing secret rotated.");
     });
   };
 
   const sendTestWebhook = () => {
     startTransition(async () => {
-      setErrorMessage(null);
-      setSaveMessage(null);
-
       const response = await fetch("/api/developers/webhook-endpoint", {
         method: "POST",
       });
@@ -170,21 +159,18 @@ export default function Settings({
         .error?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(testWebhookError ?? "Unable to send test webhook.");
+        toast.error(testWebhookError ?? "Unable to send test webhook.");
         return;
       }
 
       const now = new Date().toISOString();
       setLastWebhookTestAt(now);
-      setSaveMessage("Test webhook queued.");
+      toast.success("Test webhook queued.");
     });
   };
 
   const confirmDeactivate = () => {
     startTransition(async () => {
-      setErrorMessage(null);
-      setSaveMessage(null);
-
       const response = await fetch("/api/settings/store-status", {
         body: JSON.stringify({
           action: "deactivate",
@@ -202,12 +188,12 @@ export default function Settings({
         .error?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(deactivateError ?? "Unable to deactivate store.");
+        toast.error(deactivateError ?? "Unable to deactivate store.");
         return;
       }
 
       setModal(null);
-      setSaveMessage("Store marked as deactivated.");
+      toast.success("Store marked as deactivated.");
     });
   };
 
@@ -216,6 +202,9 @@ export default function Settings({
       <DashboardSidebar
         active="settings"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col relative">
         <div className="sticky top-0 z-10 bg-background px-8 py-4 border-b border-border">
@@ -226,23 +215,14 @@ export default function Settings({
         </div>
 
         <div className="px-8 py-6 max-w-[680px] flex flex-col gap-5">
-          {saveMessage && (
-            <div className="text-sm text-foreground">{saveMessage}</div>
-          )}
-          {errorMessage && (
-            <div className="text-sm text-destructive">{errorMessage}</div>
-          )}
-
           <Card>
             <CardHeader>
               <CardTitle>Store profile</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 border-b-0">
-              <div className="text-xs text-foreground-lighter leading-[1.5]">
-                Logo assets exist in the schema, but this checkout does not yet
-                have a storage pipeline. The editable merchant fields below map
-                directly to `merchants`.
-              </div>
+              <StoreLogoUploader
+                initialLogoUrl={initialData.merchant.logoUrl}
+              />
               <Input
                 label="Store name"
                 value={storeName}

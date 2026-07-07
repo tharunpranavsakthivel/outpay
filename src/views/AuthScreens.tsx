@@ -4,7 +4,7 @@ import { AlertTriangle, Check, ImagePlus, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "../components/ui/Button";
 import {
@@ -16,6 +16,7 @@ import {
 } from "../components/ui/Card";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
+import { useToast } from "../components/ui/Toast";
 
 const STEP_LABELS = ["Store details", "Wallet address", "Confirm"];
 const INLINE_ACTION_CLASS =
@@ -180,6 +181,7 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const submitSignup = () => {
     startTransition(async () => {
@@ -193,16 +195,20 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
         });
 
         if (response.error) {
-          setErrorMessage(response.error.message || "Unable to create account.");
+          const message = response.error.message || "Unable to create account.";
+          setErrorMessage(message);
+          toast.error(message);
           return;
         }
 
+        toast.success("Account created.");
         router.push(resolveAuthRedirect(returnTo ?? null, "/onboarding"));
         router.refresh();
       } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Unable to create account.",
-        );
+        const message =
+          error instanceof Error ? error.message : "Unable to create account.";
+        setErrorMessage(message);
+        toast.error(message);
       }
     });
   };
@@ -269,6 +275,7 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const submitLogin = () => {
     startTransition(async () => {
@@ -282,16 +289,20 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
         });
 
         if (response.error) {
-          setErrorMessage(response.error.message || "Unable to log in.");
+          const message = response.error.message || "Unable to log in.";
+          setErrorMessage(message);
+          toast.error(message);
           return;
         }
 
+        toast.success("Logged in.");
         router.push(resolveAuthRedirect(returnTo ?? null, "/dashboard"));
         router.refresh();
       } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Unable to log in.",
-        );
+        const message =
+          error instanceof Error ? error.message : "Unable to log in.";
+        setErrorMessage(message);
+        toast.error(message);
       }
     });
   };
@@ -364,6 +375,7 @@ export function ForgotPasswordScreen() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const requestReset = () => {
     startTransition(async () => {
@@ -376,19 +388,22 @@ export function ForgotPasswordScreen() {
         });
 
         if (response.error) {
-          setErrorMessage(
-            response.error.message || "Unable to start password reset.",
-          );
+          const message =
+            response.error.message || "Unable to start password reset.";
+          setErrorMessage(message);
+          toast.error(message);
           return;
         }
 
         setResetSent(true);
+        toast.success("Password reset requested.");
       } catch (error) {
-        setErrorMessage(
+        const message =
           error instanceof Error
             ? error.message
-            : "Unable to start password reset.",
-        );
+            : "Unable to start password reset.";
+        setErrorMessage(message);
+        toast.error(message);
       }
     });
   };
@@ -473,9 +488,82 @@ export function OnboardingScreen() {
   const [storeDescription, setStoreDescription] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [walletConfirmed, setWalletConfirmed] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const stepOneDisabled = !storeName.trim();
   const stepTwoDisabled = !walletAddress.trim() || !walletConfirmed;
+
+  const submitOnboarding = () => {
+    startTransition(async () => {
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch("/api/onboarding", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            storeDescription,
+            storeName,
+            walletAddress,
+            walletConfirmed,
+          }),
+        });
+        const payload = (await response.json()) as
+          | {
+              nextPath?: string;
+            }
+          | {
+              error?: {
+                code?: string;
+                message?: string;
+              };
+            };
+
+        if (!response.ok) {
+          const message =
+            "error" in payload && payload.error?.message
+              ? payload.error.message
+              : "Unable to complete onboarding.";
+          setErrorMessage(message);
+          toast.error(message);
+          return;
+        }
+
+        if (logoFile) {
+          const logoFormData = new FormData();
+          logoFormData.append("file", logoFile);
+          // Best-effort: the merchant is already created at this point, so a
+          // failed logo upload shouldn't block finishing onboarding.
+          await fetch("/api/settings/store-logo", {
+            method: "POST",
+            body: logoFormData,
+          }).catch(() => undefined);
+        }
+
+        toast.success("Store setup complete.");
+        router.push(
+          "nextPath" in payload && payload.nextPath
+            ? payload.nextPath
+            : "/dashboard/first-login",
+        );
+        router.refresh();
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to complete onboarding.";
+        setErrorMessage(message);
+        toast.error(message);
+      }
+    });
+  };
 
   return (
     <AuthPageFrame>
@@ -492,13 +580,42 @@ export function OnboardingScreen() {
             </CardHeader>
             <CardContent className="flex flex-col gap-4 border-b-0">
               <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-xl bg-accent shrink-0 flex items-center justify-center">
-                  <ImagePlus size={18} className="opacity-50" />
+                <div className="w-14 h-14 rounded-xl bg-accent shrink-0 flex items-center justify-center overflow-hidden">
+                  {logoPreviewUrl ? (
+                    <img
+                      src={logoPreviewUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <ImagePlus size={18} className="opacity-50" />
+                  )}
                 </div>
                 <div>
-                  <Button variant="outline" size="tiny">
+                  <Button
+                    variant="outline"
+                    size="tiny"
+                    onClick={() => logoFileInputRef.current?.click()}
+                  >
                     Upload logo
                   </Button>
+                  <input
+                    ref={logoFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      event.target.value = "";
+                      setLogoFile(file);
+                      setLogoPreviewUrl((current) => {
+                        if (current) {
+                          URL.revokeObjectURL(current);
+                        }
+                        return file ? URL.createObjectURL(file) : null;
+                      });
+                    }}
+                  />
                   <div className="text-[11px] text-foreground-lighter mt-1.5">
                     PNG or SVG, at least 256x256. Optional - you can add this
                     later.
@@ -517,6 +634,9 @@ export function OnboardingScreen() {
                 value={storeDescription}
                 onChange={(event) => setStoreDescription(event.target.value)}
               />
+              {errorMessage && (
+                <div className="text-sm text-destructive">{errorMessage}</div>
+              )}
             </CardContent>
             <CardContent className="flex justify-end border-b-0">
               <Button
@@ -571,6 +691,9 @@ export function OnboardingScreen() {
                   I confirm this address is correct and controlled by me.
                 </span>
               </div>
+              {errorMessage && (
+                <div className="text-sm text-destructive">{errorMessage}</div>
+              )}
             </CardContent>
             <CardContent className="flex justify-between border-b-0">
               <Button variant="text" size="medium" onClick={() => setStep(1)}>
@@ -623,6 +746,9 @@ export function OnboardingScreen() {
                   straight to your wallet - nothing further to set up.
                 </div>
               </div>
+              {errorMessage && (
+                <div className="text-sm text-destructive">{errorMessage}</div>
+              )}
             </CardContent>
             <CardContent className="flex justify-between items-center border-b-0">
               <Button variant="text" size="medium" onClick={() => setStep(2)}>
@@ -631,9 +757,10 @@ export function OnboardingScreen() {
               <Button
                 variant="primary"
                 size="medium"
-                onClick={() => router.push("/dashboard")}
+                disabled={isPending}
+                onClick={submitOnboarding}
               >
-                Go to dashboard
+                {isPending ? "Creating store..." : "Go to dashboard"}
               </Button>
             </CardContent>
           </Card>

@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { useToast } from "../components/ui/Toast";
 import type {
   CreateCheckoutPageData,
   CreateCheckoutResult,
@@ -45,6 +46,7 @@ export default function CreateCheckout({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isCreating, startTransition] = useTransition();
   const [origin, setOrigin] = useState("");
+  const toast = useToast();
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -82,11 +84,13 @@ export default function CreateCheckout({
 
       if (!response.ok || "error" in payload) {
         setSubmitError(errorMessage ?? "Unable to create checkout.");
+        toast.error(errorMessage ?? "Unable to create checkout.");
         return;
       }
 
       setCreatedCheckout(payload as CreateCheckoutResult);
       setCopyLabel("Copy link");
+      toast.success("Checkout created.");
     });
   };
 
@@ -98,7 +102,10 @@ export default function CreateCheckout({
     const checkoutUrl = origin
       ? `${origin}${createdCheckout.checkoutUrl}`
       : createdCheckout.checkoutUrl;
-    navigator.clipboard?.writeText(checkoutUrl).catch(() => undefined);
+    navigator.clipboard
+      ?.writeText(checkoutUrl)
+      .then(() => toast.success("Checkout link copied."))
+      .catch(() => toast.error("Unable to copy checkout link."));
     setCopyLabel("Copied");
     setTimeout(() => setCopyLabel("Copy link"), 1400);
   };
@@ -112,6 +119,9 @@ export default function CreateCheckout({
       <DashboardSidebar
         active="checkouts"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background flex items-center justify-between px-8 py-4 border-b border-border">

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { AvatarColorPicker } from "../components/account/AvatarColorPicker";
 import { DashboardSidebar } from "../components/layout/DashboardSidebar";
 import { Button } from "../components/ui/Button";
 import {
@@ -12,6 +13,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { useToast } from "../components/ui/Toast";
 import { formatDashboardDate } from "../lib/dashboard/format";
 import type { AccountSettingsData } from "../lib/dashboard/types";
 
@@ -25,15 +27,11 @@ export default function AccountSettings({
   initialData: AccountSettingsData;
 }) {
   const [fullName, setFullName] = useState(initialData.fullName ?? "");
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const saveProfile = () => {
     startTransition(async () => {
-      setSaveMessage(null);
-      setErrorMessage(null);
-
       const response = await fetch("/api/settings/account-profile", {
         body: JSON.stringify({
           fullName,
@@ -46,15 +44,15 @@ export default function AccountSettings({
       const payload = (await response.json()) as
         | { error?: { message?: string } }
         | Record<string, unknown>;
-      const errorMessage = (payload as { error?: { message?: string } }).error
+      const responseError = (payload as { error?: { message?: string } }).error
         ?.message;
 
       if (!response.ok || "error" in payload) {
-        setErrorMessage(errorMessage ?? "Unable to save account.");
+        toast.error(responseError ?? "Unable to save account.");
         return;
       }
 
-      setSaveMessage("Account profile saved.");
+      toast.success("Account profile saved.");
     });
   };
 
@@ -63,6 +61,9 @@ export default function AccountSettings({
       <DashboardSidebar
         active="settings"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background px-8 py-4 border-b border-border">
@@ -88,13 +89,6 @@ export default function AccountSettings({
         </div>
 
         <div className="px-8 py-6 max-w-[640px] flex flex-col gap-5">
-          {saveMessage && (
-            <div className="text-sm text-foreground">{saveMessage}</div>
-          )}
-          {errorMessage && (
-            <div className="text-sm text-destructive">{errorMessage}</div>
-          )}
-
           <Card>
             <CardHeader>
               <CardTitle>Your account</CardTitle>
@@ -103,6 +97,10 @@ export default function AccountSettings({
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 border-b-0">
+              <AvatarColorPicker
+                fallbackLabel={initialData.fullName || initialData.email || "?"}
+                initialColor={initialData.merchant.userAvatarColor}
+              />
               <Input
                 label="Full name"
                 value={fullName}

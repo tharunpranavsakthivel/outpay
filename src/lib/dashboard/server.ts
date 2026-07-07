@@ -3,12 +3,19 @@
  * merchant surfaces and public checkout/receipt flows.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type { Sql, TransactionSql } from "postgres";
+import { AVATAR_COLOR_PALETTE } from "@/components/ui/UserAvatar";
 import { getServerSession } from "@/lib/auth/server";
 import {
   connectToDatabase,
   DatabaseConnectionError,
 } from "@/lib/database/client";
+import {
+  getObject,
+  TIGRIS_BUCKET_NAME,
+  uploadObject,
+} from "@/lib/storage/tigris";
 import {
   formatDashboardDate,
   formatShortDate,
@@ -40,7 +47,18 @@ import type {
   WebhookDeliveryItem,
 } from "./types";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHECKOUT_PAGE_SIZE = 8;
+const BASE_BLOCKCHAIN_SLUG = "base";
+const BASE_CHAIN_NUMERIC_ID = 8453;
+const BASE_EXPLORER_TX_URL_TEMPLATE = "https://basescan.org/tx/{tx_hash}";
+const BASE_USDC_CONTRACT_ADDRESS = "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913";
+const BASE_USDC_CONTRACT_ADDRESS_NORMALIZED =
+  BASE_USDC_CONTRACT_ADDRESS.toLowerCase();
+type DatabaseSql =
+  | Sql<Record<string, unknown>>
+  | TransactionSql<Record<string, unknown>>;
 
 interface MerchantContext {
   email: string;
@@ -55,6 +73,161 @@ interface MerchantWalletContext {
   tokenId: string;
   tokenSymbol: string;
   walletId: string;
+}
+
+export class MissingMerchantContextError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingMerchantContextError";
+  }
+}
+
+/**
+ * Converts store names into stable slug candidates for `merchants.public_slug`.
+ *
+ * Parameters:
+ * - value: User-provided store name entered during onboarding.
+ *
+ * Returns:
+ * - Lower-case URL-safe slug with a non-empty fallback.
+ */
+function slugifyStoreName(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug || "merchant";
+}
+
+/**
+ * Builds a unique merchant slug while preserving human-readable store names.
+ *
+ * Parameters:
+ * - sql: Active transaction-scoped Postgres client.
+ * - storeName: Merchant display name supplied during onboarding.
+ *
+ * Returns:
+ * - Unique `public_slug` value for the new merchant row.
+ */
+async function buildUniqueMerchantSlug(
+  sql: DatabaseSql,
+  storeName: string,
+): Promise<string> {
+  const baseSlug = slugifyStoreName(storeName);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const suffix =
+      attempt === 0 ? "" : `-${randomBytes(2).toString("hex").toLowerCase()}`;
+    const candidate = `${baseSlug}${suffix}`;
+    const existing = await sql<{ exists: boolean }[]>`
+      select exists (
+        select 1
+        from merchants
+        where lower(public_slug::text) = ${candidate}
+      ) as exists
+    `;
+
+    if (!existing[0]?.exists) {
+      return candidate;
+    }
+  }
+
+  return `${baseSlug}-${randomBytes(4).toString("hex").toLowerCase()}`;
+}
+
+/**
+ * Ensures the Base blockchain row and default USDC token exist before
+ * onboarding inserts a payout wallet or checkout-dependent merchant state.
+ *
+ * Parameters:
+ * - sql: Active transaction-scoped Postgres client.
+ *
+ * Returns:
+ * - IDs for the Base chain and default USDC token.
+ */
+async function ensureBaseTokenCatalog(sql: DatabaseSql): Promise<{
+  chainId: string;
+  tokenId: string;
+}> {
+  let chain = await sql<{ id: string }[]>`
+    select id::text as id
+    from blockchains
+    where lower(slug::text) = ${BASE_BLOCKCHAIN_SLUG}
+       or chain_numeric_id = ${BASE_CHAIN_NUMERIC_ID}
+    order by created_at asc
+    limit 1
+  `;
+
+  if (!chain[0]) {
+    chain = await sql<{ id: string }[]>`
+      insert into blockchains (
+        slug,
+        display_name,
+        chain_numeric_id,
+        explorer_tx_url_template,
+        rpc_label
+      ) values (
+        ${BASE_BLOCKCHAIN_SLUG},
+        'Base',
+        ${BASE_CHAIN_NUMERIC_ID},
+        ${BASE_EXPLORER_TX_URL_TEMPLATE},
+        'Base mainnet'
+      )
+      returning id::text as id
+    `;
+  }
+
+  let token = await sql<{ id: string }[]>`
+    select id::text as id
+    from tokens
+    where chain_id = ${chain[0].id}
+      and (
+        lower(symbol::text) = 'usdc'
+        or contract_address_normalized = ${BASE_USDC_CONTRACT_ADDRESS_NORMALIZED}
+      )
+    order by is_mvp_default desc, created_at asc
+    limit 1
+  `;
+
+  if (!token[0]) {
+    token = await sql<{ id: string }[]>`
+      insert into tokens (
+        chain_id,
+        symbol,
+        display_name,
+        contract_address,
+        contract_address_normalized,
+        decimals,
+        is_enabled,
+        is_mvp_default
+      ) values (
+        ${chain[0].id},
+        'USDC',
+        'USD Coin',
+        ${BASE_USDC_CONTRACT_ADDRESS},
+        ${BASE_USDC_CONTRACT_ADDRESS_NORMALIZED},
+        6,
+        true,
+        true
+      )
+      returning id::text as id
+    `;
+  } else {
+    await sql`
+      update tokens
+      set
+        is_enabled = true,
+        is_mvp_default = true
+      where id = ${token[0].id}
+    `;
+  }
+
+  return {
+    chainId: chain[0].id,
+    tokenId: token[0].id,
+  };
 }
 
 /**
@@ -81,8 +254,10 @@ async function getMerchantContext(): Promise<MerchantContext> {
   try {
     const directMembership = await database.sql<
       {
+        avatar_color: string | null;
         description: string | null;
         full_name: string | null;
+        logo_asset_id: string | null;
         merchant_id: string;
         public_slug: string;
         status: string;
@@ -97,6 +272,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
       select
         up.id as user_id,
         up.full_name,
+        up.avatar_color,
         up.two_factor_status,
         m.id as merchant_id,
         m.public_slug::text as public_slug,
@@ -105,6 +281,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
         m.description,
         m.status::text as status,
         m.verification_status::text as verification_status,
+        m.logo_asset_id::text as logo_asset_id,
         (
           select count(*)
           from notifications n
@@ -136,8 +313,10 @@ async function getMerchantContext(): Promise<MerchantContext> {
         : (
             await database.sql<
               {
+                avatar_color: string | null;
                 description: string | null;
                 full_name: string | null;
+                logo_asset_id: string | null;
                 merchant_id: string;
                 public_slug: string;
                 status: string;
@@ -152,6 +331,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
               select
                 up.id as user_id,
                 up.full_name,
+                up.avatar_color,
                 up.two_factor_status,
                 m.id as merchant_id,
                 m.public_slug::text as public_slug,
@@ -160,6 +340,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
                 m.description,
                 m.status::text as status,
                 m.verification_status::text as verification_status,
+                m.logo_asset_id::text as logo_asset_id,
                 (
                   select count(*)
                   from notifications n
@@ -177,7 +358,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
           )[0];
 
     if (!fallbackOwner) {
-      throw new Error(
+      throw new MissingMerchantContextError(
         "No merchant record is linked to this account email in user_profiles and merchant_members.",
       );
     }
@@ -186,15 +367,299 @@ async function getMerchantContext(): Promise<MerchantContext> {
       email,
       merchant: {
         description: fallbackOwner.description,
+        logoUrl: fallbackOwner.logo_asset_id
+          ? `/api/store-logo/${fallbackOwner.logo_asset_id}`
+          : null,
         merchantId: fallbackOwner.merchant_id,
         publicSlug: fallbackOwner.public_slug,
         status: fallbackOwner.status,
         storeName: fallbackOwner.store_name,
         supportEmail: fallbackOwner.support_email,
         unreadNotifications: fallbackOwner.unread_notifications,
+        userAvatarColor: fallbackOwner.avatar_color,
+        userFullName: fallbackOwner.full_name,
         verificationStatus: fallbackOwner.verification_status,
       },
       userId: fallbackOwner.user_id,
+    };
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Creates or repairs the initial merchant graph for a signed-in user who just
+ * completed onboarding.
+ *
+ * Parameters:
+ * - input.storeName: Merchant display name to persist on checkout surfaces.
+ * - input.storeDescription: Optional short description shown on merchant pages.
+ * - input.walletAddress: Base payout wallet controlled by the merchant.
+ * - input.walletConfirmed: Explicit user confirmation for the payout address.
+ *
+ * Returns:
+ * - Next route to visit after onboarding completes successfully.
+ *
+ * Throws:
+ * - `Error` when the session is missing, the profile row is absent, or the
+ *   onboarding payload is invalid.
+ */
+export async function completeMerchantOnboarding(input: {
+  storeDescription: string;
+  storeName: string;
+  walletAddress: string;
+  walletConfirmed: boolean;
+}) {
+  const session = await getServerSession();
+  const email = session?.user.email?.trim().toLowerCase();
+  const fullName = session?.user.name?.trim() || null;
+  const storeName = input.storeName.trim();
+  const storeDescription = input.storeDescription.trim();
+  const walletAddress = input.walletAddress.trim();
+  const walletAddressNormalized = walletAddress.toLowerCase();
+
+  if (!email) {
+    throw new Error("Sign in before completing onboarding.");
+  }
+
+  if (!storeName) {
+    throw new Error("Store name is required.");
+  }
+
+  if (!input.walletConfirmed) {
+    throw new Error("Confirm the payout wallet before continuing.");
+  }
+
+  if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+    throw new Error("Wallet address must be a valid Base EVM address.");
+  }
+
+  const database = await connectToDatabase();
+
+  try {
+    await database.sql.begin(async (sql) => {
+      const profileRows = await sql<
+        {
+          full_name: string | null;
+          user_id: string;
+        }[]
+      >`
+        select id::text as user_id, full_name
+        from user_profiles
+        where lower(email::text) = ${email}
+        limit 1
+      `;
+
+      if (!profileRows[0]?.user_id) {
+        throw new Error(
+          "This account does not have a linked user_profiles row yet. Sign out and sign back in to retry provisioning.",
+        );
+      }
+
+      const userId = profileRows[0].user_id;
+      const displayName = fullName || profileRows[0].full_name || storeName;
+      const { chainId } = await ensureBaseTokenCatalog(sql);
+
+      const existingMerchantRows = await sql<
+        {
+          merchant_id: string;
+        }[]
+      >`
+        select mm.merchant_id::text as merchant_id
+        from merchant_members mm
+        where mm.user_id = ${userId}::uuid
+        order by
+          case mm.role
+            when 'owner' then 0
+            when 'admin' then 1
+            when 'developer' then 2
+            else 3
+          end,
+          mm.created_at asc
+        limit 1
+      `;
+
+      const merchantId =
+        existingMerchantRows[0]?.merchant_id ??
+        (
+          await sql<
+            {
+              id: string;
+            }[]
+          >`
+            insert into merchants (
+              public_slug,
+              display_name,
+              description,
+              support_email,
+              created_by_user_id
+            ) values (
+              ${await buildUniqueMerchantSlug(sql, storeName)},
+              ${storeName},
+              ${storeDescription || null},
+              ${email},
+              ${userId}::uuid
+            )
+            returning id::text as id
+          `
+        )[0].id;
+
+      await sql`
+        update user_profiles
+        set
+          full_name = ${displayName},
+          updated_at = now()
+        where id = ${userId}::uuid
+      `;
+
+      await sql`
+        update merchants
+        set
+          display_name = ${storeName},
+          description = ${storeDescription || null},
+          support_email = ${email},
+          updated_at = now()
+        where id = ${merchantId}::uuid
+      `;
+
+      await sql`
+        insert into merchant_members (
+          merchant_id,
+          user_id,
+          role,
+          status,
+          joined_at
+        ) values (
+          ${merchantId}::uuid,
+          ${userId}::uuid,
+          'owner',
+          'active',
+          now()
+        )
+        on conflict (merchant_id, user_id) do update
+          set role = 'owner',
+              status = 'active',
+              joined_at = coalesce(merchant_members.joined_at, excluded.joined_at),
+              updated_at = now()
+      `;
+
+      await sql`
+        insert into merchant_onboarding (
+          merchant_id,
+          primary_user_id,
+          onboarding_status,
+          store_details_completed_at,
+          wallet_added_at,
+          wallet_confirmation_checked_at,
+          completed_at
+        ) values (
+          ${merchantId}::uuid,
+          ${userId}::uuid,
+          'completed',
+          now(),
+          now(),
+          now(),
+          now()
+        )
+        on conflict (merchant_id) do update
+          set primary_user_id = excluded.primary_user_id,
+              onboarding_status = 'completed',
+              store_details_completed_at = coalesce(
+                merchant_onboarding.store_details_completed_at,
+                excluded.store_details_completed_at
+              ),
+              wallet_added_at = excluded.wallet_added_at,
+              wallet_confirmation_checked_at = excluded.wallet_confirmation_checked_at,
+              completed_at = coalesce(
+                merchant_onboarding.completed_at,
+                excluded.completed_at
+              ),
+              updated_at = now()
+      `;
+
+      const existingWalletRows = await sql<
+        {
+          address_normalized: string;
+          wallet_id: string;
+        }[]
+      >`
+        select id::text as wallet_id, address_normalized
+        from wallet_addresses
+        where merchant_id = ${merchantId}::uuid
+          and wallet_type = 'merchant_payout'
+          and status = 'active'
+          and is_primary = true
+        order by created_at desc
+        limit 1
+      `;
+
+      if (!existingWalletRows[0]) {
+        await sql`
+          insert into wallet_addresses (
+            merchant_id,
+            chain_id,
+            address,
+            address_normalized,
+            wallet_type,
+            label,
+            is_primary,
+            status,
+            verified_at,
+            created_by_user_id
+          ) values (
+            ${merchantId}::uuid,
+            ${chainId}::uuid,
+            ${walletAddress},
+            ${walletAddressNormalized},
+            'merchant_payout',
+            'Primary payout wallet',
+            true,
+            'active',
+            now(),
+            ${userId}::uuid
+          )
+        `;
+      } else if (
+        existingWalletRows[0].address_normalized !== walletAddressNormalized
+      ) {
+        await sql`
+          update wallet_addresses
+          set
+            is_primary = false,
+            status = 'replaced'
+          where id = ${existingWalletRows[0].wallet_id}::uuid
+        `;
+
+        await sql`
+          insert into wallet_addresses (
+            merchant_id,
+            chain_id,
+            address,
+            address_normalized,
+            wallet_type,
+            label,
+            is_primary,
+            status,
+            verified_at,
+            created_by_user_id
+          ) values (
+            ${merchantId}::uuid,
+            ${chainId}::uuid,
+            ${walletAddress},
+            ${walletAddressNormalized},
+            'merchant_payout',
+            'Primary payout wallet',
+            true,
+            'active',
+            now(),
+            ${userId}::uuid
+          )
+        `;
+      }
+    });
+
+    return {
+      nextPath: "/dashboard/first-login",
     };
   } finally {
     await database.release();
@@ -1602,6 +2067,162 @@ export async function updateAccountProfile(input: { fullName: string }) {
   } finally {
     await database.release();
   }
+}
+
+/**
+ * Persists the user's chosen initials-avatar background color.
+ *
+ * Parameters:
+ * - avatarColor: Hex color from `AVATAR_COLOR_PALETTE`.
+ *
+ * Throws:
+ * - `Error` when the color is not one of the allowed palette values.
+ */
+export async function updateAccountAvatarColor(input: { avatarColor: string }) {
+  if (!AVATAR_COLOR_PALETTE.includes(input.avatarColor as never)) {
+    throw new Error("Choose one of the provided avatar colors.");
+  }
+
+  const context = await getMerchantContext();
+  const database = await connectToDatabase();
+
+  try {
+    const [profile] = await database.sql<
+      {
+        avatar_color: string | null;
+      }[]
+    >`
+      update user_profiles
+      set
+        avatar_color = ${input.avatarColor},
+        updated_at = now()
+      where id = ${context.userId}
+      returning avatar_color
+    `;
+
+    return profile;
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Uploads a new store logo to object storage, records it in `file_assets`,
+ * and points `merchants.logo_asset_id` at the new row. Each upload creates a
+ * fresh asset row (rather than overwriting the previous object), so the
+ * returned URL is unique per upload and safe to cache forever.
+ *
+ * Parameters:
+ * - buffer: Raw image bytes.
+ * - contentType: MIME type validated by the caller against
+ *   `ALLOWED_LOGO_CONTENT_TYPES`.
+ *
+ * Returns:
+ * - `logoUrl` pointing at the new asset via `/api/store-logo/[assetId]`.
+ */
+export async function uploadStoreLogo(input: {
+  buffer: Buffer;
+  contentType: string;
+}): Promise<{ logoUrl: string }> {
+  const context = await getMerchantContext();
+  const assetId = randomUUID();
+  const storagePath = `merchant-logos/${assetId}`;
+  const sha256 = createHash("sha256").update(input.buffer).digest("hex");
+
+  await uploadObject({
+    buffer: input.buffer,
+    contentType: input.contentType,
+    key: storagePath,
+  });
+
+  const database = await connectToDatabase();
+
+  try {
+    await database.sql.begin(async (sql) => {
+      await sql`
+        insert into file_assets (
+          id,
+          owner_merchant_id,
+          storage_bucket,
+          storage_path,
+          mime_type,
+          byte_size,
+          sha256,
+          uploaded_by_user_id
+        )
+        values (
+          ${assetId}::uuid,
+          ${context.merchant.merchantId}::uuid,
+          ${TIGRIS_BUCKET_NAME},
+          ${storagePath},
+          ${input.contentType},
+          ${input.buffer.length},
+          ${sha256},
+          ${context.userId}::uuid
+        )
+      `;
+
+      await sql`
+        update merchants
+        set
+          logo_asset_id = ${assetId}::uuid,
+          updated_at = now()
+        where id = ${context.merchant.merchantId}::uuid
+      `;
+    });
+  } finally {
+    await database.release();
+  }
+
+  return { logoUrl: `/api/store-logo/${assetId}` };
+}
+
+/**
+ * Streams a previously uploaded store logo asset. Public by design — store
+ * logos are shown on public checkout pages.
+ *
+ * Parameters:
+ * - assetId: `file_assets.id` referenced by `merchants.logo_asset_id`.
+ *
+ * Returns:
+ * - Image bytes and content type when the asset exists.
+ * - `null` when the asset row or the underlying object is missing.
+ */
+export async function getStoreLogoObject(
+  assetId: string,
+): Promise<{ buffer: Uint8Array; contentType: string } | null> {
+  if (!UUID_PATTERN.test(assetId)) {
+    return null;
+  }
+
+  const database = await connectToDatabase();
+
+  let storagePath: string;
+  let mimeType: string;
+
+  try {
+    const [asset] = await database.sql<
+      { mime_type: string; storage_path: string }[]
+    >`
+      select storage_path, mime_type
+      from file_assets
+      where id = ${assetId}::uuid
+      limit 1
+    `;
+
+    if (!asset) {
+      return null;
+    }
+
+    storagePath = asset.storage_path;
+    mimeType = asset.mime_type;
+  } finally {
+    await database.release();
+  }
+
+  const object = await getObject({ key: storagePath });
+
+  return object ? { buffer: object.buffer, contentType: mimeType } : null;
 }
 
 /**

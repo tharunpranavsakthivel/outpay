@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/Table";
+import { useToast } from "../components/ui/Toast";
 import { formatDashboardDate } from "../lib/dashboard/format";
 import type {
   DashboardPageData,
@@ -53,13 +54,17 @@ export default function MerchantDashboard({
   );
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isMarkingRead, startMarkingRead] = useTransition();
+  const toast = useToast();
 
   const copyHash = (hash: string | null, index: number) => {
     if (!hash) {
       return;
     }
 
-    navigator.clipboard?.writeText(hash).catch(() => undefined);
+    navigator.clipboard
+      ?.writeText(hash)
+      .then(() => toast.success("Transaction hash copied."))
+      .catch(() => toast.error("Unable to copy transaction hash."));
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 1200);
   };
@@ -77,6 +82,7 @@ export default function MerchantDashboard({
       });
 
       if (!response.ok) {
+        toast.error("Unable to mark notifications as read.");
         return;
       }
 
@@ -87,6 +93,7 @@ export default function MerchantDashboard({
         })),
       );
       setUnreadCount(0);
+      toast.success("All notifications marked as read.");
     });
   };
 
@@ -95,6 +102,9 @@ export default function MerchantDashboard({
       <DashboardSidebar
         active="dashboard"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background flex items-center justify-between px-8 py-4 border-b border-border">

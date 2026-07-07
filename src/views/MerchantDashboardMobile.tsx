@@ -15,6 +15,7 @@ import {
   StatusPill,
   type StatusPillVariant,
 } from "../components/ui/StatusPill";
+import { useToast } from "../components/ui/Toast";
 
 const TABS = [
   { id: "dashboard", label: "Home", Icon: LayoutDashboard },
@@ -111,8 +112,12 @@ const RAW_PAYMENTS: {
 /** Mobile (393px phone-canvas) merchant dashboard with bottom tab bar. */
 export default function MerchantDashboardMobile() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const toast = useToast();
   const copyHash = (hash: string, i: number) => {
-    navigator.clipboard?.writeText(hash).catch(() => {});
+    navigator.clipboard
+      ?.writeText(hash)
+      .then(() => toast.success("Transaction hash copied."))
+      .catch(() => toast.error("Unable to copy transaction hash."));
     setCopiedIndex(i);
     setTimeout(() => setCopiedIndex(null), 1200);
   };

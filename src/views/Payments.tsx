@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/Table";
+import { useToast } from "../components/ui/Toast";
 import { truncateIdentifier } from "../lib/dashboard/format";
 import type {
   PaymentListItem,
@@ -51,6 +52,7 @@ export default function Payments({
   const [selectedPayment, setSelectedPayment] =
     useState<PaymentListItem | null>(null);
   const [isRefreshing, startTransition] = useTransition();
+  const toast = useToast();
 
   useEffect(() => {
     startTransition(async () => {
@@ -65,6 +67,7 @@ export default function Payments({
       });
 
       if (!response.ok) {
+        toast.error("Unable to load payments.");
         return;
       }
 
@@ -78,7 +81,7 @@ export default function Payments({
         );
       }
     });
-  }, [query, selectedPayment]);
+  }, [query, selectedPayment, toast]);
 
   const confirmationNote = (payment: PaymentListItem) =>
     payment.status === "paid"
@@ -91,7 +94,13 @@ export default function Payments({
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground lg:flex">
-      <DashboardSidebar active="payments" storeName={data.merchant.storeName} />
+      <DashboardSidebar
+        active="payments"
+        storeName={data.merchant.storeName}
+        logoUrl={data.merchant.logoUrl}
+        userAvatarColor={data.merchant.userAvatarColor}
+        userName={data.merchant.userFullName}
+      />
       <main className="flex-1 min-w-0 flex flex-col relative">
         <div className="sticky top-0 z-10 bg-background flex items-center justify-between px-8 py-4 border-b border-border">
           <div>
@@ -205,7 +214,10 @@ export default function Payments({
                             event.stopPropagation();
                             navigator.clipboard
                               ?.writeText(payment.senderAddress)
-                              .catch(() => undefined);
+                              .then(() => toast.success("Address copied."))
+                              .catch(() =>
+                                toast.error("Unable to copy address."),
+                              );
                           }}
                         />
                       </div>
@@ -220,7 +232,10 @@ export default function Payments({
                             event.stopPropagation();
                             navigator.clipboard
                               ?.writeText(payment.recipientAddress)
-                              .catch(() => undefined);
+                              .then(() => toast.success("Address copied."))
+                              .catch(() =>
+                                toast.error("Unable to copy address."),
+                              );
                           }}
                         />
                       </div>

@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/Table";
+import { useToast } from "../components/ui/Toast";
 import type {
   CheckoutListItem,
   CheckoutListPageData,
@@ -48,11 +49,13 @@ export default function CheckoutsList({
   const [checkouts, setCheckouts] = useState(initialData.checkouts);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const copyLink = (checkout: CheckoutListItem, index: number) => {
     navigator.clipboard
       ?.writeText(`${window.location.origin}/checkout/${checkout.publicToken}`)
-      .catch(() => undefined);
+      .then(() => toast.success("Checkout link copied."))
+      .catch(() => toast.error("Unable to copy checkout link."));
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 1200);
   };
@@ -70,6 +73,7 @@ export default function CheckoutsList({
       });
 
       if (!response.ok) {
+        toast.error("Unable to deactivate checkout.");
         return;
       }
 
@@ -84,6 +88,7 @@ export default function CheckoutsList({
             : checkout,
         ),
       );
+      toast.success("Checkout deactivated.");
     });
   };
 
@@ -92,6 +97,9 @@ export default function CheckoutsList({
       <DashboardSidebar
         active="checkouts"
         storeName={initialData.merchant.storeName}
+        logoUrl={initialData.merchant.logoUrl}
+        userAvatarColor={initialData.merchant.userAvatarColor}
+        userName={initialData.merchant.userFullName}
       />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background flex items-center justify-between px-8 py-4 border-b border-border">
