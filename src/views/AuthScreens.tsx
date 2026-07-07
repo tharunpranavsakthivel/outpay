@@ -4,7 +4,8 @@ import { AlertTriangle, Check, ImagePlus, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { authClient } from "@/lib/auth/client";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -19,6 +20,39 @@ import { Input } from "../components/ui/Input";
 const STEP_LABELS = ["Store details", "Wallet address", "Confirm"];
 const INLINE_ACTION_CLASS =
   "bg-transparent border-0 p-0 font-inherit text-foreground font-medium cursor-pointer underline underline-offset-2";
+
+/**
+ * Builds a default Better Auth profile name from the signup email when the UI
+ * only collects email and password.
+ *
+ * Parameters:
+ * - email: Email address entered on the signup form.
+ *
+ * Returns:
+ * - Trimmed local-part based display name, or `Merchant` as a safe fallback.
+ */
+function buildSignupName(email: string) {
+  const [localPart] = email.trim().split("@");
+  return localPart?.trim() || "Merchant";
+}
+
+/**
+ * Normalizes post-auth redirects so only in-app relative paths are honored.
+ *
+ * Parameters:
+ * - candidate: Raw `returnTo` query-string value.
+ * - fallbackPath: Route used when the candidate is missing or invalid.
+ *
+ * Returns:
+ * - Safe relative path for the next client-side navigation.
+ */
+function resolveAuthRedirect(candidate: string | null, fallbackPath: string) {
+  if (!candidate || !candidate.startsWith("/")) {
+    return fallbackPath;
+  }
+
+  return candidate;
+}
 
 /**
  * AuthShell renders the shared centered shell used by all auth-entry pages.
@@ -137,10 +171,41 @@ function OnboardingStepIndicator({ step }: { step: number }) {
 /**
  * SignupScreen renders the dedicated account creation page.
  *
+ * @param returnTo Optional in-app path to visit after sign-up.
  * @returns Signup route content.
  */
-export function SignupScreen() {
+export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const submitSignup = () => {
+    startTransition(async () => {
+      setErrorMessage(null);
+
+      try {
+        const response = await authClient.signUp.email({
+          email,
+          name: buildSignupName(email),
+          password,
+        });
+
+        if (response.error) {
+          setErrorMessage(response.error.message || "Unable to create account.");
+          return;
+        }
+
+        router.push(resolveAuthRedirect(returnTo ?? null, "/onboarding"));
+        router.refresh();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Unable to create account.",
+        );
+      }
+    });
+  };
 
   return (
     <AuthPageFrame>
@@ -153,21 +218,33 @@ export function SignupScreen() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3.5 border-b-0">
-            <Input label="Email" type="email" placeholder="you@store.com" />
+            <Input
+              label="Email"
+              type="email"
+              placeholder="you@store.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
             <Input
               label="Password"
               type="password"
               placeholder="At least 8 characters"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
             />
+            {errorMessage && (
+              <div className="text-sm text-destructive">{errorMessage}</div>
+            )}
           </CardContent>
           <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
             <Button
               variant="primary"
               size="medium"
               block
-              onClick={() => router.push("/onboarding")}
+              disabled={!email.trim() || password.length < 8 || isPending}
+              onClick={submitSignup}
             >
-              Sign up
+              {isPending ? "Creating account..." : "Sign up"}
             </Button>
             <div className="text-center text-[12.5px] text-foreground-lighter">
               Already have an account?{" "}
@@ -183,10 +260,41 @@ export function SignupScreen() {
 /**
  * LoginScreen renders the dedicated sign-in page.
  *
+ * @param returnTo Optional in-app path to visit after login.
  * @returns Login route content.
  */
-export function LoginScreen() {
+export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const submitLogin = () => {
+    startTransition(async () => {
+      setErrorMessage(null);
+
+      try {
+        const response = await authClient.signIn.email({
+          email,
+          password,
+          rememberMe: true,
+        });
+
+        if (response.error) {
+          setErrorMessage(response.error.message || "Unable to log in.");
+          return;
+        }
+
+        router.push(resolveAuthRedirect(returnTo ?? null, "/dashboard"));
+        router.refresh();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Unable to log in.",
+        );
+      }
+    });
+  };
 
   return (
     <AuthPageFrame>
@@ -197,12 +305,20 @@ export function LoginScreen() {
             <CardDescription>Welcome back.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3.5 border-b-0">
-            <Input label="Email" type="email" placeholder="you@store.com" />
+            <Input
+              label="Email"
+              type="email"
+              placeholder="you@store.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
             <div>
               <Input
                 label="Password"
                 type="password"
                 placeholder="Your password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
               />
               <div className="text-right mt-1.5">
                 <Link
@@ -213,15 +329,19 @@ export function LoginScreen() {
                 </Link>
               </div>
             </div>
+            {errorMessage && (
+              <div className="text-sm text-destructive">{errorMessage}</div>
+            )}
           </CardContent>
           <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
             <Button
               variant="primary"
               size="medium"
               block
-              onClick={() => router.push("/onboarding")}
+              disabled={!email.trim() || !password || isPending}
+              onClick={submitLogin}
             >
-              Log in
+              {isPending ? "Logging in..." : "Log in"}
             </Button>
             <div className="text-center text-[12.5px] text-foreground-lighter">
               Don&apos;t have an account?{" "}
@@ -242,6 +362,36 @@ export function LoginScreen() {
 export function ForgotPasswordScreen() {
   const [resetSent, setResetSent] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const requestReset = () => {
+    startTransition(async () => {
+      setErrorMessage(null);
+
+      try {
+        const response = await authClient.requestPasswordReset({
+          email: forgotEmail,
+          redirectTo: "/forgot",
+        });
+
+        if (response.error) {
+          setErrorMessage(
+            response.error.message || "Unable to start password reset.",
+          );
+          return;
+        }
+
+        setResetSent(true);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to start password reset.",
+        );
+      }
+    });
+  };
 
   return (
     <AuthPageFrame>
@@ -264,15 +414,19 @@ export function ForgotPasswordScreen() {
                   value={forgotEmail}
                   onChange={(event) => setForgotEmail(event.target.value)}
                 />
+                {errorMessage && (
+                  <div className="text-sm text-destructive">{errorMessage}</div>
+                )}
               </CardContent>
               <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
                 <Button
                   variant="primary"
                   size="medium"
                   block
-                  onClick={() => setResetSent(true)}
+                  disabled={!forgotEmail.trim() || isPending}
+                  onClick={requestReset}
                 >
-                  Send reset link
+                  {isPending ? "Submitting..." : "Send reset link"}
                 </Button>
                 <div className="text-center text-[12.5px] text-foreground-lighter">
                   <AuthInlineLink href="/login">Back to log in</AuthInlineLink>
@@ -286,21 +440,15 @@ export function ForgotPasswordScreen() {
               </div>
               <div className="text-[15px] font-semibold">Check your email</div>
               <div className="text-sm text-foreground-lighter leading-[1.5] max-w-[300px]">
-                We sent a password reset link to{" "}
+                We accepted a password reset request for{" "}
                 <strong className="text-foreground font-medium">
                   {forgotEmail || "you@store.com"}
                 </strong>
-                . It expires in 30 minutes.
+                . Email delivery is not configured in this prototype yet, so no
+                reset email was sent.
               </div>
               <div className="text-xs text-foreground-lighter mt-1">
-                Didn&apos;t get it?{" "}
-                <button
-                  type="button"
-                  onClick={() => setResetSent(true)}
-                  className={INLINE_ACTION_CLASS}
-                >
-                  Resend
-                </button>
+                You can submit another request after mail delivery is wired up.
               </div>
               <div className="mt-2">
                 <AuthInlineLink href="/login">Back to log in</AuthInlineLink>

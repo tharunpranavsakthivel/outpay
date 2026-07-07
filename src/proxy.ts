@@ -1,18 +1,22 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { auth0 } from "./lib/auth0";
+import {
+  BETTER_AUTH_SECURE_SESSION_COOKIE_NAME,
+  BETTER_AUTH_SESSION_COOKIE_NAME,
+} from "./lib/auth/cookies";
 
 const PROTECTED_ROUTE_PREFIXES = [
   "/dashboard",
   "/checkouts",
   "/payments",
+  "/developers",
   "/settings",
   "/onboarding",
 ];
 
 /**
  * Determines whether a request targets a merchant-app route that should only
- * render after Auth0 has established a session.
+ * render after Better Auth has established a session.
  *
  * @param pathname Request pathname from NextRequest.nextUrl.
  * @returns True when the route is part of the authenticated app surface.
@@ -24,18 +28,22 @@ function isProtectedRoute(pathname: string) {
 }
 
 /**
- * Runs the Auth0 network boundary for login, callback, logout, and rolling
- * session cookies before application routes render.
+ * Performs an optimistic cookie presence check before protected routes render.
+ * The definitive session validation still happens inside server-side route and
+ * data handlers via Better Auth itself.
  *
  * @param request Incoming Next.js proxy request.
- * @returns Auth0 middleware response, or a login redirect for protected routes.
+ * @returns Next.js pass-through response, or a login redirect for protected
+ * routes with no auth cookie.
  */
 export async function proxy(request: NextRequest) {
   if (isProtectedRoute(request.nextUrl.pathname)) {
-    const session = await auth0.getSession(request);
+    const hasSessionCookie =
+      request.cookies.has(BETTER_AUTH_SESSION_COOKIE_NAME) ||
+      request.cookies.has(BETTER_AUTH_SECURE_SESSION_COOKIE_NAME);
 
-    if (!session) {
-      const loginUrl = new URL("/auth/login", request.nextUrl.origin);
+    if (!hasSessionCookie) {
+      const loginUrl = new URL("/login", request.nextUrl.origin);
       loginUrl.searchParams.set(
         "returnTo",
         `${request.nextUrl.pathname}${request.nextUrl.search}`,
@@ -45,14 +53,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  const authResponse = await auth0.middleware(request);
-
-  // Always return the auth response.
-  //
-  // Note: The auth response forwards requests to your app routes by default.
-  // If you need to block requests, do it before calling auth0.middleware() or
-  // copy the authResponse headers except for x-middleware-next to your blocking response.
-  return authResponse;
+  return NextResponse.next();
 }
 
 export const config = {

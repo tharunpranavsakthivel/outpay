@@ -16,6 +16,9 @@ bun install
 cp .env.example .env
 ```
 
+Set `BETTER_AUTH_SECRET` to a high-entropy value and keep
+`BETTER_AUTH_URL` aligned with your local app origin.
+
 3. Start the app:
 
 ```bash
@@ -61,6 +64,7 @@ bun run db:migrate:down
 - `DATABASE_SCHEMA.md` is the source of truth for the initial schema.
 - `auth.users` is required by the schema. On Supabase, the existing auth table is used as-is.
 - On a plain PostgreSQL database, the first migration creates a minimal `auth.users` compatibility table so the documented foreign keys can be created from scratch.
+- Better Auth adds its own auth tables in the next migration while mirroring core profile data into `auth.users` and `user_profiles`.
 - The schema migration does not seed pricing plans, blockchains, or tokens because this task is limited to structure creation.
 
 ## Quality checks

@@ -1,6 +1,11 @@
-import { redirect } from "next/navigation";
+import { SignupScreen } from "../../views/AuthScreens";
 
-/** Route: /signup - compatibility redirect to the Auth0-hosted signup flow. */
-export default function SignupPage() {
-  redirect("/auth/login?screen_hint=signup");
+/** Route: /signup - first-party Better Auth email sign-up. */
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>;
+}) {
+  const { returnTo } = await searchParams;
+  return <SignupScreen returnTo={returnTo} />;
 }

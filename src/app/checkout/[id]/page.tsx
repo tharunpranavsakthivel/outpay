@@ -1,24 +1,11 @@
-"use client";
-
-import { use } from "react";
+import { getPublicCheckoutData } from "@/lib/dashboard/server";
 import CustomerCheckout from "../../../views/CustomerCheckout";
 
-/**
- * Route: /checkout/[id] — public customer-facing checkout page. Replace the
- * hardcoded defaults with a real fetch keyed on `id` (Server Component +
- * `fetch` in a wrapping layer, or a client fetch here).
- */
-export default function CheckoutByIdPage({
+/** Route: /checkout/[id] — public customer-facing checkout page. */
+export default async function CheckoutByIdPage({
   params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  return (
-    <CustomerCheckout
-      amount="124.00"
-      orderDescription={`Checkout ${id}`}
-      showDemoControl={false}
-    />
-  );
+}: PageProps<"/checkout/[id]">) {
+  const { id } = await params;
+  const data = await getPublicCheckoutData(id);
+  return <CustomerCheckout initialData={data} />;
 }

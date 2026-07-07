@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CryptoCheckout — Architecture Blueprint</title>
+  <style>
+    :root {
+      --bg: #070A12;
+      --panel: #0D1220;
+      --panel-2: #111827;
+      --card: #151C2F;
+      --line: #263149;
+      --muted: #8A95AD;
+      --text: #F4F7FB;
+      --subtext: #C3CAD9;
+      --accent: #6EE7B7;
+      --accent-2: #60A5FA;
+      --warn: #FBBF24;
+      --danger: #FB7185;
+      --purple: #A78BFA;
+      --shadow: 0 24px 80px rgba(0,0,0,.35);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(96,165,250,.16), transparent 35%),
+        radial-gradient(circle at top right, rgba(110,231,183,.12), transparent 30%),
+        linear-gradient(180deg, #070A12, #090D17 45%, #05070D);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 48px 0 80px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+
+    .hero-card, .panel, .diagram, .flow-card, .table-card {
+      background: linear-gradient(180deg, rgba(21,28,47,.96), rgba(13,18,32,.96));
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card { padding: 34px; position: relative; overflow: hidden; }
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -120px;
+      top: -120px;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(110,231,183,.20), transparent 65%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+
+    .pulse {
+      width: 9px;
+      height: 9px;
+      background: var(--accent);
+      border-radius: 999px;
+      box-shadow: 0 0 0 8px rgba(110,231,183,.10);
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(38px, 5vw, 66px);
+      line-height: .98;
+      letter-spacing: -0.055em;
+    }
+
+    .lead {
+      color: var(--subtext);
+      font-size: 18px;
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .definition {
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .definition h2, .panel h2, .diagram h2, .table-card h2 {
+      margin: 0;
+      letter-spacing: -0.035em;
+      font-size: 24px;
+    }
+
+    .tag-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .tag {
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px;
+      background: rgba(255,255,255,.035);
+      color: var(--subtext);
+      font-size: 14px;
+    }
+
+    .tag strong { color: var(--text); }
+
+    .section {
+      margin-top: 28px;
+    }
+
+    .panel {
+      padding: 28px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .mini-card {
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.035);
+      border-radius: 18px;
+      padding: 18px;
+      min-height: 150px;
+    }
+
+    .mini-card .num {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: rgba(110,231,183,.12);
+      color: var(--accent);
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+
+    .mini-card h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    .mini-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .diagram {
+      padding: 28px;
+      overflow: hidden;
+    }
+
+    .architecture {
+      margin-top: 24px;
+      display: grid;
+      grid-template-columns: 1fr 84px 1fr 84px 1fr;
+      gap: 0;
+      align-items: center;
+    }
+
+    .arch-column {
+      display: grid;
+      gap: 14px;
+    }
+
+    .arch-box {
+      position: relative;
+      padding: 18px;
+      min-height: 112px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+    }
+
+    .arch-box h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .arch-box p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: rgba(96,165,250,.12);
+      color: var(--accent-2);
+      font-size: 15px;
+    }
+
+    .arrow {
+      height: 2px;
+      background: linear-gradient(90deg, rgba(96,165,250,.15), rgba(110,231,183,.85), rgba(96,165,250,.15));
+      position: relative;
+      margin: 0 18px;
+    }
+
+    .arrow::after {
+      content: "";
+      position: absolute;
+      right: -2px;
+      top: 50%;
+      transform: translateY(-50%) rotate(45deg);
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid rgba(110,231,183,.85);
+      border-right: 2px solid rgba(110,231,183,.85);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .flow-card {
+      padding: 16px;
+      min-height: 140px;
+      box-shadow: none;
+    }
+
+    .flow-card span {
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 11px;
+      background: rgba(167,139,250,.14);
+      color: var(--purple);
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .flow-card h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .flow-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      margin-top: 16px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 780px;
+      background: rgba(255,255,255,.025);
+    }
+
+    th, td {
+      text-align: left;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--text);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      background: rgba(255,255,255,.04);
+    }
+
+    td {
+      color: var(--subtext);
+      font-size: 14px;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .badge {
+      display: inline-flex;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.04);
+      color: var(--subtext);
+    }
+
+    .badge.green { color: var(--accent); background: rgba(110,231,183,.1); }
+    .badge.blue { color: var(--accent-2); background: rgba(96,165,250,.1); }
+    .badge.warn { color: var(--warn); background: rgba(251,191,36,.1); }
+    .badge.red { color: var(--danger); background: rgba(251,113,133,.1); }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .callout {
+      border: 1px solid rgba(110,231,183,.22);
+      background: rgba(110,231,183,.075);
+      border-radius: 18px;
+      padding: 18px;
+      color: var(--subtext);
+    }
+
+    .callout strong { color: var(--accent); }
+
+    code {
+      background: rgba(255,255,255,.075);
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 2px 6px;
+      border-radius: 7px;
+      color: #E9FDF5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: .92em;
+    }
+
+    .terminal {
+      margin-top: 16px;
+      background: #05070C;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 18px;
+      padding: 18px;
+      overflow: auto;
+      color: #C9D7F2;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      white-space: pre;
+    }
+
+    .footer {
+      color: var(--muted);
+      text-align: center;
+      margin-top: 40px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .architecture {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .arrow {
+        width: 2px;
+        height: 38px;
+        margin: 0 auto;
+        background: linear-gradient(180deg, rgba(96,165,250,.15), rgba(110,231,183,.85), rgba(96,165,250,.15));
+      }
+      .arrow::after {
+        right: 50%;
+        top: auto;
+        bottom: -2px;
+        transform: translateX(50%) rotate(135deg);
+      }
+      .flow { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .page { width: min(100% - 24px, 1180px); padding-top: 24px; }
+      .hero-card, .definition, .panel, .diagram, .table-card { padding: 20px; }
+      .flow { grid-template-columns: 1fr; }
+      h1 { font-size: 38px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-card">
+        <div class="eyebrow"><span class="pulse"></span> CryptoCheckout MVP Blueprint</div>
+        <h1>Non-custodial USDC checkout for ecommerce merchants.</h1>
+        <p class="lead">
+          You are building a payment verification layer, not a bank. Merchants create checkout links,
+          customers pay USDC directly to the merchant wallet, your system detects the blockchain transaction,
+          marks the checkout as paid, and sends a webhook to the merchant's store.
+        </p>
+      </div>
+
+      <aside class="definition">
+        <h2>Exactly what you are building</h2>
+        <div class="tag-grid">
+          <div class="tag"><strong>Product:</strong> Stablecoin checkout links + merchant dashboard.</div>
+          <div class="tag"><strong>Network:</strong> Base first.</div>
+          <div class="tag"><strong>Token:</strong> USDC first. USDT later.</div>
+          <div class="tag"><strong>Settlement:</strong> Direct to merchant wallet.</div>
+          <div class="tag"><strong>Your role:</strong> Verify payment, record it, notify merchant.</div>
+          <div class="tag"><strong>Not MVP:</strong> Custody, fiat conversion, card payments, multi-chain chaos.</div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="section panel">
+      <h2>The strategic MVP</h2>
+      <div class="grid-3">
+        <article class="mini-card">
+          <div class="num">1</div>
+          <h3>Merchant creates checkout</h3>
+          <p>The merchant enters amount, currency, success URL, cancel URL, and order metadata. Your app returns a public checkout link.</p>
+        </article>
+        <article class="mini-card">
+          <div class="num">2</div>
+          <h3>Customer pays USDC</h3>
+          <p>The checkout page shows the merchant wallet, exact amount, Base network, QR code, and payment status.</p>
+        </article>
+        <article class="mini-card">
+          <div class="num">3</div>
+          <h3>Worker verifies payment</h3>
+          <p>A Railway worker watches USDC Transfer events, matches them to pending checkouts, updates Postgres, and triggers webhooks.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section diagram">
+      <h2>Visual architecture</h2>
+      <div class="architecture">
+        <div class="arch-column">
+          <div class="arch-box">
+            <h3><span class="icon">🛒</span> Customer</h3>
+            <p>Opens checkout link, connects wallet or scans QR code, sends exact USDC amount on Base.</p>
+          </div>
+          <div class="arch-box">
+            <h3><span class="icon">🏪</span> Merchant</h3>
+            <p>Creates checkouts, receives direct wallet settlement, configures webhooks, views payments.</p>
+          </div>
+        </div>
+
+        <div class="arrow"></div>
+
+        <div class="arch-column">
+          <div class="arch-box">
+            <h3><span class="icon">▲</span> Next.js Web App</h3>
+            <p>Landing page, dashboard, checkout pages, API routes, merchant auth, checkout creation, payment status API.</p>
+          </div>
+          <div class="arch-box">
+            <h3><span class="icon">⚙</span> Railway Worker</h3>
+            <p>Long-running TypeScript process. Watches blockchain events, matches payments, sends webhook jobs.</p>
+          </div>
+        </div>
+
+        <div class="arrow"></div>
+
+        <div class="arch-column">
+          <div class="arch-box">
+            <h3><span class="icon">🐘</span> Railway Postgres</h3>
+            <p>Source of truth for merchants, wallets, checkout sessions, payments, API keys, webhooks, and audit logs.</p>
+          </div>
+          <div class="arch-box">
+            <h3><span class="icon">🔗</span> Base RPC Provider</h3>
+            <p>Alchemy, QuickNode, Coinbase, or another RPC provider used by the worker to monitor USDC transfers.</p>
+          </div>
+          <div class="arch-box">
+            <h3><span class="icon">📮</span> Merchant Store</h3>
+            <p>Receives signed webhook such as <code>checkout.paid</code> and marks the ecommerce order as paid.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section panel">
+      <h2>Payment flow</h2>
+      <div class="flow">
+        <div class="flow-card">
+          <span>1</span>
+          <h3>Create checkout</h3>
+          <p>Merchant calls <code>POST /api/checkouts</code> or uses dashboard.</p>
+        </div>
+        <div class="flow-card">
+          <span>2</span>
+          <h3>Open pay page</h3>
+          <p>Customer sees amount, wallet address, network, and QR code.</p>
+        </div>
+        <div class="flow-card">
+          <span>3</span>
+          <h3>Send USDC</h3>
+          <p>Customer sends exact USDC on Base to merchant wallet.</p>
+        </div>
+        <div class="flow-card">
+          <span>4</span>
+          <h3>Detect event</h3>
+          <p>Worker listens for ERC-20 <code>Transfer</code> events.</p>
+        </div>
+        <div class="flow-card">
+          <span>5</span>
+          <h3>Match payment</h3>
+          <p>Recipient, amount, token contract, chain, and expiry are verified.</p>
+        </div>
+        <div class="flow-card">
+          <span>6</span>
+          <h3>Notify store</h3>
+          <p>Checkout becomes paid. Signed webhook is sent to merchant.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section two-col">
+      <div class="table-card panel">
+        <h2>Railway deployment</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Purpose</th>
+                <th>Start command</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="badge blue">Web</span></td>
+                <td>Next.js UI, APIs, checkout page, merchant dashboard.</td>
+                <td><code>pnpm start</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge green">Worker</span></td>
+                <td>Blockchain listener, payment matcher, webhook sender.</td>
+                <td><code>pnpm worker:payments</code></td>
+              </tr>
+              <tr>
+                <td><span class="badge warn">Postgres</span></td>
+                <td>Main database for all business records.</td>
+                <td>Railway Postgres template</td>
+              </tr>
+              <tr>
+                <td><span class="badge">Redis later</span></td>
+                <td>Webhook retries, queues, rate limits, background jobs.</td>
+                <td>Railway Redis template</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="table-card panel">
+        <h2>Data model</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Table</th>
+                <th>Stores</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>merchants</code></td><td>Merchant account, store name, email, status.</td></tr>
+              <tr><td><code>merchant_wallets</code></td><td>Wallet address, chain, token support.</td></tr>
+              <tr><td><code>checkout_sessions</code></td><td>Amount, currency, status, expiry, metadata.</td></tr>
+              <tr><td><code>payments</code></td><td>Transaction hash, sender, recipient, amount, confirmation state.</td></tr>
+              <tr><td><code>webhook_endpoints</code></td><td>Merchant webhook URL and signing secret.</td></tr>
+              <tr><td><code>webhook_events</code></td><td>Event payload, delivery attempts, status, error logs.</td></tr>
+              <tr><td><code>api_keys</code></td><td>Merchant API key hashes, scopes, last used timestamp.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section panel">
+      <h2>Build boundaries</h2>
+      <div class="grid-3">
+        <article class="mini-card">
+          <div class="num">✓</div>
+          <h3>Build now</h3>
+          <p>Checkout links, USDC/Base payments, direct merchant wallet settlement, payment detection, webhooks, dashboard.</p>
+        </article>
+        <article class="mini-card">
+          <div class="num">→</div>
+          <h3>Build after validation</h3>
+          <p>WooCommerce plugin, Shopify app, store directory, subscriptions, smart contract invoice router, analytics.</p>
+        </article>
+        <article class="mini-card">
+          <div class="num">×</div>
+          <h3>Avoid early</h3>
+          <p>Custody, fiat settlement, automatic conversion, card payments, multi-chain expansion, complex refunds.</p>
+        </article>
+      </div>
+      <div class="callout" style="margin-top: 18px;">
+        <strong>Core rule:</strong> In the MVP, CryptoCheckout does not hold funds. It only provides checkout UX, blockchain verification, payment records, and signed merchant notifications.
+      </div>
+    </section>
+
+    <section class="section panel">
+      <h2>Repository structure</h2>
+      <div class="terminal">cryptocheckout/
+├── app/
+│   ├── dashboard/
+│   ├── pay/[checkoutId]/
+│   ├── stores/
+│   └── api/
+│       ├── checkouts/
+│       ├── wallets/
+│       ├── payments/
+│       └── webhooks/
+├── components/
+├── lib/
+│   ├── db.ts
+│   ├── auth.ts
+│   ├── usdc.ts
+│   ├── webhook-signing.ts
+│   └── validation.ts
+├── workers/
+│   └── payment-listener.ts
+├── prisma/
+│   └── schema.prisma
+└── package.json</div>
+    </section>
+
+    <p class="footer">CryptoCheckout Architecture Blueprint — MVP-first, non-custodial, Railway-deployable.</p>
+  </main>
+</body>
+</html>

@@ -1,7 +1,7 @@
 "use client";
 
-import { Clock } from "lucide-react";
-import { useState } from "react";
+import Link from "next/link";
+import { useState, useTransition } from "react";
 import { DashboardSidebar } from "../components/layout/DashboardSidebar";
 import { Button } from "../components/ui/Button";
 import {
@@ -12,33 +12,75 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { formatDashboardDate } from "../lib/dashboard/format";
+import type { AccountSettingsData } from "../lib/dashboard/types";
 
-/** Account settings: personal profile, password change, 2FA (coming soon). Store/Account tab switcher at top. */
-export default function AccountSettings() {
-  const [fullName, setFullName] = useState("Jordan Reyes");
-  const [email, setEmail] = useState("jordan@acmecoffee.com");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+/**
+ * Account settings view backed by user_profiles and aligned with Better Auth
+ * credentials.
+ */
+export default function AccountSettings({
+  initialData,
+}: {
+  initialData: AccountSettingsData;
+}) {
+  const [fullName, setFullName] = useState(initialData.fullName ?? "");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const saveProfile = () => {
+    startTransition(async () => {
+      setSaveMessage(null);
+      setErrorMessage(null);
+
+      const response = await fetch("/api/settings/account-profile", {
+        body: JSON.stringify({
+          fullName,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      });
+      const payload = (await response.json()) as
+        | { error?: { message?: string } }
+        | Record<string, unknown>;
+      const errorMessage = (payload as { error?: { message?: string } }).error
+        ?.message;
+
+      if (!response.ok || "error" in payload) {
+        setErrorMessage(errorMessage ?? "Unable to save account.");
+        return;
+      }
+
+      setSaveMessage("Account profile saved.");
+    });
+  };
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground lg:flex">
-      <DashboardSidebar active="settings" />
+      <DashboardSidebar
+        active="settings"
+        storeName={initialData.merchant.storeName}
+      />
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="sticky top-0 z-10 bg-background px-8 py-4 border-b border-border">
           <h1 className="heading-title m-0">Settings</h1>
           <p className="m-0 mt-1 text-xs text-foreground-lighter">
-            Store profile and account preferences.
+            User profile data from `user_profiles`, with credentials managed by
+            Better Auth.
           </p>
         </div>
 
         <div className="px-8 pt-5">
           <div className="flex items-center gap-5 border-b border-border">
-            <a
+            <Link
               href="/settings"
               className="py-2 text-sm border-b-2 border-transparent text-foreground-lighter no-underline"
             >
               Store
-            </a>
+            </Link>
             <div className="py-2 text-sm border-b-2 border-foreground text-foreground cursor-pointer">
               Account
             </div>
@@ -46,6 +88,13 @@ export default function AccountSettings() {
         </div>
 
         <div className="px-8 py-6 max-w-[640px] flex flex-col gap-5">
+          {saveMessage && (
+            <div className="text-sm text-foreground">{saveMessage}</div>
+          )}
+          {errorMessage && (
+            <div className="text-sm text-destructive">{errorMessage}</div>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Your account</CardTitle>
@@ -57,17 +106,22 @@ export default function AccountSettings() {
               <Input
                 label="Full name"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(event) => setFullName(event.target.value)}
               />
               <Input
                 label="Email"
                 type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={initialData.email}
+                disabled
               />
             </CardContent>
             <CardContent className="flex justify-end">
-              <Button variant="primary" size="medium">
+              <Button
+                variant="primary"
+                size="medium"
+                disabled={isPending}
+                onClick={saveProfile}
+              >
                 Save changes
               </Button>
             </CardContent>
@@ -75,50 +129,27 @@ export default function AccountSettings() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Change password</CardTitle>
+              <CardTitle>Password and sign-in</CardTitle>
               <CardDescription>
-                Choose a new password for your account.
+                Password changes are handled through Better Auth rather than a
+                custom application credential store.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 border-b-0">
-              <Input
-                label="Current password"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
-              <Input
-                label="New password"
-                type="password"
-                hint="At least 8 characters"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </CardContent>
-            <CardContent className="flex justify-end">
-              <Button
-                variant="outline"
-                size="medium"
-                disabled={!currentPassword || newPassword.length < 8}
-              >
-                Update password
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="flex items-center justify-between border-b-0">
-              <div>
-                <div className="text-sm font-medium">
-                  Two-factor authentication
-                </div>
-                <div className="text-xs text-foreground-lighter mt-0.5 max-w-[400px]">
-                  Add an extra layer of security when logging in.
-                </div>
+            <CardContent className="flex flex-col gap-3 border-b-0">
+              <div className="text-sm text-foreground-light">
+                Last password change:{" "}
+                {initialData.passwordChangedAt
+                  ? formatDashboardDate(initialData.passwordChangedAt)
+                  : "No password change timestamp recorded"}
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-foreground-lighter border border-border rounded-full px-2.5 py-1 whitespace-nowrap">
-                <Clock size={11} className="opacity-60" /> Coming soon
+              <div className="text-sm text-foreground-light">
+                Two-factor status: {initialData.twoFactorStatus}
               </div>
+              <Link href="/forgot" className="no-underline w-fit">
+                <Button variant="outline" size="medium">
+                  Start password reset
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>

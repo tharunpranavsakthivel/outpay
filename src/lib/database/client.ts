@@ -45,13 +45,14 @@ export async function connectToDatabase(): Promise<ConnectedDatabaseClient> {
     try {
       sql = createPostgresClient(candidate.url);
       await sql`select 1`;
+      const connectedSql = sql;
 
       return {
         release: async () => {
-          await sql.end({ timeout: 5 });
+          await connectedSql.end({ timeout: 5 });
         },
         source: candidate.source,
-        sql,
+        sql: connectedSql,
       };
     } catch (error) {
       failures.push(`${candidate.source}: ${formatDatabaseError(error)}`);

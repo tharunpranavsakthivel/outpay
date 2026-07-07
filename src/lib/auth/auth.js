@@ -1,1 +1,1 @@
-export { auth0 } from "../auth0";
+export { auth } from "./index";

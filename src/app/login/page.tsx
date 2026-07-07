@@ -1,6 +1,11 @@
-import { redirect } from "next/navigation";
+import { LoginScreen } from "../../views/AuthScreens";
 
-/** Route: /login - compatibility redirect to the Auth0-hosted sign-in flow. */
-export default function LoginPage() {
-  redirect("/auth/login");
+/** Route: /login - first-party Better Auth email sign-in. */
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>;
+}) {
+  const { returnTo } = await searchParams;
+  return <LoginScreen returnTo={returnTo} />;
 }

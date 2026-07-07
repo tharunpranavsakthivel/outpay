@@ -19,8 +19,10 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type React from "react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { authClient } from "@/lib/auth/client";
 
 const PRODUCT_ITEMS = [
   {
@@ -256,28 +258,43 @@ function DevelopersMegaMenu() {
 }
 
 /**
- * Builds a readable account label from the Auth0 profile without assuming a
- * specific identity provider claim is always present.
+ * Builds a readable account label from the current auth profile without
+ * assuming a specific identity provider claim is always present.
  */
 function getAccountLabel(user: MarketingNavbarUser) {
   return user.name || user.email || "Account";
 }
 
 /**
- * Renders either the Auth0-hosted signup entry point or the logged-in account
- * menu. Auth0 auth routes use anchors so the SDK handles full-page redirects.
+ * Signs the current user out through Better Auth and returns them to the
+ * marketing homepage.
+ *
+ * Parameters:
+ * - router: Next.js client router used for the post-logout navigation.
+ */
+async function signOutAndReturnHome(router: ReturnType<typeof useRouter>) {
+  await authClient.signOut();
+  router.push("/");
+  router.refresh();
+}
+
+/**
+ * Renders either the first-party signup entry point or the logged-in account
+ * menu.
  */
 function AccountActions({ user }: { user?: MarketingNavbarUser | null }) {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [isSigningOut, startSignOutTransition] = useTransition();
+  const router = useRouter();
 
   if (!user) {
     return (
-      <a
-        href="/auth/login?screen_hint=signup"
+      <Link
+        href="/signup"
         className="h-[34px] px-3 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
       >
         Sign up
-      </a>
+      </Link>
     );
   }
 
@@ -329,14 +346,20 @@ function AccountActions({ user }: { user?: MarketingNavbarUser | null }) {
             <Settings size={15} />
             Settings
           </a>
-          <a
-            href="/auth/logout"
+          <button
+            type="button"
             role="menuitem"
-            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground no-underline hover:bg-accent"
+            disabled={isSigningOut}
+            onClick={() => {
+              startSignOutTransition(async () => {
+                await signOutAndReturnHome(router);
+              });
+            }}
+            className="flex w-full items-center gap-2 border-0 bg-transparent px-4 py-2.5 text-left text-sm text-foreground cursor-pointer hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             <LogOut size={15} />
-            Log out
-          </a>
+            {isSigningOut ? "Signing out..." : "Log out"}
+          </button>
         </div>
       )}
     </div>
@@ -357,6 +380,8 @@ export function MarketingNavbar({
     null,
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSigningOut, startSignOutTransition] = useTransition();
+  const router = useRouter();
 
   return (
     <nav
@@ -541,20 +566,27 @@ export function MarketingNavbar({
                   >
                     Settings
                   </Link>
-                  <a
-                    href="/auth/logout"
-                    className="rounded-lg px-3 py-2.5 text-sm font-medium text-foreground no-underline hover:bg-accent"
+                  <button
+                    type="button"
+                    disabled={isSigningOut}
+                    onClick={() => {
+                      startSignOutTransition(async () => {
+                        setMobileMenuOpen(false);
+                        await signOutAndReturnHome(router);
+                      });
+                    }}
+                    className="rounded-lg border-0 bg-transparent px-3 py-2.5 text-left text-sm font-medium text-foreground cursor-pointer hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Log out
-                  </a>
+                    {isSigningOut ? "Signing out..." : "Log out"}
+                  </button>
                 </div>
               ) : (
-                <a
-                  href="/auth/login?screen_hint=signup"
+                <Link
+                  href="/signup"
                   className="h-[38px] px-4 text-sm gap-2 flex w-full items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
                 >
                   Sign up
-                </a>
+                </Link>
               )}
             </div>
           </div>

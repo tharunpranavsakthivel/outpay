@@ -329,12 +329,12 @@ export default function Home({ authenticatedUser }: HomeProps) {
               and signed fulfillment events.
             </p>
             <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center">
-              <a
-                href="/auth/login?screen_hint=signup"
+              <Link
+                href="/signup"
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
               >
                 Sign up
-              </a>
+              </Link>
               <Link
                 href="/company/contact"
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-transparent border border-border-strong text-foreground hover:bg-accent no-underline"
@@ -642,12 +642,12 @@ export default function Home({ authenticatedUser }: HomeProps) {
           </h2>
         </div>
         <div className="op-reveal flex flex-col gap-3 sm:flex-row sm:items-center">
-          <a
-            href="/auth/login?screen_hint=signup"
+          <Link
+            href="/signup"
             className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
           >
             Sign up
-          </a>
+          </Link>
           <Link
             href="/pricing"
             className="no-underline text-sm font-medium text-foreground inline-flex items-center gap-1.5"

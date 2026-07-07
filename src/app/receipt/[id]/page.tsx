@@ -1,17 +1,11 @@
-"use client";
-
-import { use } from "react";
+import { getPublicReceiptData } from "@/lib/dashboard/server";
 import PaymentReceipt from "../../../views/PaymentReceipt";
 
-/**
- * Route: /receipt/[id] — shown after a customer completes payment. Replace
- * the hardcoded defaults with a real fetch keyed on `id`.
- */
-export default function ReceiptPage({
+/** Route: /receipt/[id] — shown after a customer completes payment. */
+export default async function ReceiptPage({
   params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  return <PaymentReceipt orderDescription={`Checkout ${id}`} />;
+}: PageProps<"/receipt/[id]">) {
+  const { id } = await params;
+  const data = await getPublicReceiptData(id);
+  return <PaymentReceipt initialData={data} />;
 }

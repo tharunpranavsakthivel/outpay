@@ -1,9 +1,9 @@
-import { auth0 } from "@/lib/auth0";
+import { getServerSession } from "@/lib/auth/server";
 import Home from "../views/Home";
 
-/** Route: / - marketing homepage with Auth0-aware account actions. */
+/** Route: / - marketing homepage with Better Auth-aware account actions. */
 export default async function HomePage() {
-  const session = await auth0.getSession();
+  const session = await getServerSession();
 
   return (
     <Home
@@ -12,7 +12,7 @@ export default async function HomePage() {
           ? {
               email: session.user.email,
               name: session.user.name,
-              picture: session.user.picture,
+              picture: session.user.image ?? undefined,
             }
           : null
       }

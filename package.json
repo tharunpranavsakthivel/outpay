@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "db:clear": "bun scripts/db/clear.ts",
     "db:migrate": "bun scripts/db/migrate.ts up",
     "db:migrate:down": "bun scripts/db/migrate.ts down",
     "db:status": "bun scripts/db/migrate.ts status",
@@ -15,9 +16,10 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "@auth0/nextjs-auth0": "4.x",
+    "better-auth": "^1.6.23",
     "lucide-react": "^1.23.0",
     "next": "16.2.10",
+    "pg": "^8.16.3",
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -26,6 +28,7 @@
     "@biomejs/biome": "2.2.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
