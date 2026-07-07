@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Outpay
 
-## Getting Started
+Outpay is a Next.js 16 merchant checkout prototype for non-custodial USDC payments on Base.
 
-First, run the development server:
+## Local setup
+
+1. Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy the environment template and populate it with local values:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Start the app:
 
-## Learn More
+```bash
+bun run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open `http://localhost:3000` after the server starts.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Database setup
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The database tooling resolves connections in this order using the variable names defined in `.env.example`:
 
-## Deploy on Vercel
+1. `DATABASE_URL`
+2. `DATABASE_PUBLIC_URL`
+3. `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run the schema migrations on a clean PostgreSQL database with:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+bun run db:migrate
+```
+
+Inspect migration status with:
+
+```bash
+bun run db:status
+```
+
+Validate that the required schema objects were created with:
+
+```bash
+bun run db:validate
+```
+
+Roll back the most recent migration with:
+
+```bash
+bun run db:migrate:down
+```
+
+## Database assumptions
+
+- `DATABASE_SCHEMA.md` is the source of truth for the initial schema.
+- `auth.users` is required by the schema. On Supabase, the existing auth table is used as-is.
+- On a plain PostgreSQL database, the first migration creates a minimal `auth.users` compatibility table so the documented foreign keys can be created from scratch.
+- The schema migration does not seed pricing plans, blockchains, or tokens because this task is limited to structure creation.
+
+## Quality checks
+
+Run the formatter and linter with:
+
+```bash
+bun run format
+bun run lint
+```
