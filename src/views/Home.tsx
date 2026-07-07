@@ -18,8 +18,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
-import { MarketingNavbar } from "../components/layout/MarketingNavbar";
-import { Button } from "../components/ui/Button";
+import {
+  MarketingNavbar,
+  type MarketingNavbarUser,
+} from "../components/layout/MarketingNavbar";
 import { StatusPill } from "../components/ui/StatusPill";
 
 const PLATFORM_METRICS = [
@@ -293,12 +295,16 @@ function PaymentRailVisual() {
   );
 }
 
+type HomeProps = {
+  authenticatedUser?: MarketingNavbarUser | null;
+};
+
 /** Home page for the public marketing site. */
-export default function Home() {
+export default function Home({ authenticatedUser }: HomeProps) {
   return (
     <div className="bg-background min-h-screen font-sans flex flex-col">
       <div className="sticky top-0 z-20">
-        <MarketingNavbar />
+        <MarketingNavbar authenticatedUser={authenticatedUser} />
       </div>
 
       <section className="relative overflow-hidden border-b border-border">
@@ -323,9 +329,12 @@ export default function Home() {
               and signed fulfillment events.
             </p>
             <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center">
-              <Button variant="primary" size="medium">
-                Start building
-              </Button>
+              <a
+                href="/auth/login?screen_hint=signup"
+                className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+              >
+                Sign up
+              </a>
               <Link
                 href="/company/contact"
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-transparent border border-border-strong text-foreground hover:bg-accent no-underline"
@@ -633,9 +642,12 @@ export default function Home() {
           </h2>
         </div>
         <div className="op-reveal flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button variant="primary" size="medium">
-            Start building
-          </Button>
+          <a
+            href="/auth/login?screen_hint=signup"
+            className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+          >
+            Sign up
+          </a>
           <Link
             href="/pricing"
             className="no-underline text-sm font-medium text-foreground inline-flex items-center gap-1.5"

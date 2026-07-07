@@ -1,8 +1,6 @@
-import AuthOnboarding from "../../views/AuthOnboarding";
+import { redirect } from "next/navigation";
 
-/**
- * Route: /auth — combined sign up / log in / forgot password / onboarding
- * wizard as one state-switched view. Split into /signup, /login, /forgot,
- * /onboarding routes with real navigation once you wire real auth.
- */
-export default AuthOnboarding;
+/** Route: /auth - compatibility redirect to the Auth0-hosted login flow. */
+export default function AuthPage() {
+  redirect("/auth/login");
+}

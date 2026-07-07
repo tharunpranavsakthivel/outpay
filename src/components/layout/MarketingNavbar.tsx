@@ -8,10 +8,12 @@ import {
   History,
   LayoutDashboard,
   Link2,
+  LogOut,
   type LucideIcon,
   Menu,
   Radar,
   Rocket,
+  Settings,
   ShieldCheck,
   Webhook,
   X,
@@ -19,7 +21,6 @@ import {
 import Link from "next/link";
 import type React from "react";
 import { useState } from "react";
-import { Button } from "../ui/Button";
 
 const PRODUCT_ITEMS = [
   {
@@ -85,6 +86,17 @@ type MegaMenuItem = {
   title: string;
   desc: string;
   href: string;
+};
+
+export type MarketingNavbarUser = {
+  name?: string;
+  email?: string;
+  picture?: string;
+};
+
+type MarketingNavbarProps = {
+  activeHref?: string;
+  authenticatedUser?: MarketingNavbarUser | null;
 };
 
 /**
@@ -244,12 +256,103 @@ function DevelopersMegaMenu() {
 }
 
 /**
+ * Builds a readable account label from the Auth0 profile without assuming a
+ * specific identity provider claim is always present.
+ */
+function getAccountLabel(user: MarketingNavbarUser) {
+  return user.name || user.email || "Account";
+}
+
+/**
+ * Renders either the Auth0-hosted signup entry point or the logged-in account
+ * menu. Auth0 auth routes use anchors so the SDK handles full-page redirects.
+ */
+function AccountActions({ user }: { user?: MarketingNavbarUser | null }) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+
+  if (!user) {
+    return (
+      <a
+        href="/auth/login?screen_hint=signup"
+        className="h-[34px] px-3 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+      >
+        Sign up
+      </a>
+    );
+  }
+
+  const accountLabel = getAccountLabel(user);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={`${accountLabel} account menu`}
+        aria-expanded={accountMenuOpen}
+        aria-haspopup="menu"
+        onClick={() => setAccountMenuOpen((value) => !value)}
+        className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:bg-accent focus-visible:shadow-focus-ring"
+      >
+        {user.picture ? (
+          <img
+            src={user.picture}
+            alt={`${accountLabel} profile`}
+            className="h-full w-full rounded-full object-cover"
+          />
+        ) : (
+          <span aria-hidden="true">
+            {accountLabel.trim().slice(0, 1).toUpperCase()}
+          </span>
+        )}
+      </button>
+
+      {accountMenuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-40 mt-3 w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+        >
+          <div className="border-b border-border px-4 py-3">
+            <div className="truncate text-sm font-semibold text-foreground">
+              {user.name || "Signed in"}
+            </div>
+            {user.email && (
+              <div className="mt-0.5 truncate text-xs text-foreground-light">
+                {user.email}
+              </div>
+            )}
+          </div>
+          <a
+            href="/settings"
+            role="menuitem"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground no-underline hover:bg-accent"
+          >
+            <Settings size={15} />
+            Settings
+          </a>
+          <a
+            href="/auth/logout"
+            role="menuitem"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground no-underline hover:bg-accent"
+          >
+            <LogOut size={15} />
+            Log out
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Shared marketing navbar with hover mega-menus for Product / Developers.
  * Used on Home, Pricing, Product (sticky, inside a max-w-content wrapper on
  * the page itself). See screens/MarketingNavbarShowcase.tsx for the full
  * interactive + reference-frame specimen this was extracted from.
  */
-export function MarketingNavbar({ activeHref }: { activeHref?: string }) {
+export function MarketingNavbar({
+  activeHref,
+  authenticatedUser,
+}: MarketingNavbarProps) {
   const [openMenu, setOpenMenu] = useState<"product" | "developers" | null>(
     null,
   );
@@ -346,9 +449,7 @@ export function MarketingNavbar({ activeHref }: { activeHref?: string }) {
             >
               Contact sales
             </Link>
-            <Button variant="primary" size="small">
-              Start building
-            </Button>
+            <AccountActions user={authenticatedUser} />
           </div>
           <button
             type="button"
@@ -431,9 +532,30 @@ export function MarketingNavbar({ activeHref }: { activeHref?: string }) {
                   </Link>
                 ))}
               </div>
-              <Button variant="primary" size="medium" block>
-                Start building
-              </Button>
+              {authenticatedUser ? (
+                <div className="grid gap-1 border-t border-border pt-3">
+                  <Link
+                    href="/settings"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="rounded-lg px-3 py-2.5 text-sm font-medium text-foreground no-underline hover:bg-accent"
+                  >
+                    Settings
+                  </Link>
+                  <a
+                    href="/auth/logout"
+                    className="rounded-lg px-3 py-2.5 text-sm font-medium text-foreground no-underline hover:bg-accent"
+                  >
+                    Log out
+                  </a>
+                </div>
+              ) : (
+                <a
+                  href="/auth/login?screen_hint=signup"
+                  className="h-[38px] px-4 text-sm gap-2 flex w-full items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+                >
+                  Sign up
+                </a>
+              )}
             </div>
           </div>
         )}
