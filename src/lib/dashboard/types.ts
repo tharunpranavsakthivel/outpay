@@ -196,6 +196,7 @@ export interface PublicCheckoutData {
   merchantName: string;
   orderDescription: string;
   amountLabel: string;
+  expiresAt: string;
   status: "waiting" | "detected" | "paid" | "expired";
   walletAddress: string;
   chainName: string;

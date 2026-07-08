@@ -1,0 +1,41 @@
+/**
+ * Backward-compatible re-export surface for queue helpers while the codebase
+ * migrates to `@/lib/queues`.
+ */
+
+export {
+  type AlertJobPayload,
+  attachDeadLetterHandler,
+  buildAlertJobId,
+  buildChainEventJobId,
+  buildConfirmationJobId,
+  buildDeadLetterJobId,
+  buildMerchantWebhookJobId,
+  buildPaymentMatchJobId,
+  buildReconciliationJobId,
+  type ChainEventJobPayload,
+  type ConfirmationJobPayload,
+  closeQueues,
+  type DeadLetterJobPayload,
+  type DeadLetterJobRecord,
+  enqueueAlertJob,
+  enqueueChainEventJob,
+  enqueueConfirmationJob,
+  enqueueDeadLetterJob,
+  enqueueMerchantWebhookJob,
+  enqueuePaymentMatchJob,
+  enqueueReconciliationJob,
+  getNextMerchantWebhookAttemptNumber,
+  getQueue,
+  getQueueDefaultJobOptions,
+  getQueueJob,
+  getQueuePrefix,
+  listDeadLetterJobs,
+  MERCHANT_WEBHOOK_BACKOFF_STRATEGY_NAME,
+  type MerchantWebhookJobPayload,
+  type PaymentMatchJobPayload,
+  QUEUE_NAMES,
+  QUEUE_WORKER_RECOVERY_OPTIONS,
+  type ReconciliationJobPayload,
+  resolveQueueBackoffDelay,
+} from "./index";

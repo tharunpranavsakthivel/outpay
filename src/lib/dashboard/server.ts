@@ -11,12 +11,17 @@ import {
   connectToDatabase,
   DatabaseConnectionError,
 } from "@/lib/database/client";
+import { enqueueMerchantWebhookJob } from "@/lib/queues/jobs";
 import {
   getObject,
   TIGRIS_BUCKET_NAME,
   uploadObject,
 } from "@/lib/storage/tigris";
 import { verifyWalletOwnershipSignature } from "@/lib/wallet/verify-signature";
+import {
+  calculateCheckoutExpiryFromNow,
+  getCheckoutExpiryPolicy,
+} from "./checkout-expiry";
 import {
   formatDashboardDate,
   formatShortDate,
@@ -1064,39 +1069,45 @@ export async function getCheckoutListPageData(): Promise<CheckoutListPageData> {
   const database = await connectToDatabase();
 
   try {
-    const rows = await database.sql<
-      {
-        amount_token: string;
-        checkout_id: string;
-        checkout_ref: string;
-        created_at: string;
-        order_reference: string | null;
-        paid_at: string | null;
-        public_token: string;
-        redirect_url: string | null;
-        status: string;
-        symbol: string;
-        title: string;
-      }[]
-    >`
-      select
-        cs.id::text as checkout_id,
-        cs.checkout_ref,
-        cs.public_token,
-        cs.label as title,
-        cs.order_reference,
-        cs.amount_token::text as amount_token,
-        t.symbol::text as symbol,
-        cs.status::text as status,
-        cs.created_at::text as created_at,
-        cs.paid_at::text as paid_at,
-        cs.redirect_url
-      from checkout_sessions cs
-      join tokens t
-        on t.id = cs.token_id
-      where cs.merchant_id = ${context.merchant.merchantId}
-      order by cs.created_at desc
-    `;
+    const rows = await database.sql.begin(async (sql) => {
+      await reconcileCheckoutExpiry(sql, {
+        merchantId: context.merchant.merchantId,
+      });
+
+      return sql<
+        {
+          amount_token: string;
+          checkout_id: string;
+          checkout_ref: string;
+          created_at: string;
+          order_reference: string | null;
+          paid_at: string | null;
+          public_token: string;
+          redirect_url: string | null;
+          status: string;
+          symbol: string;
+          title: string;
+        }[]
+      >`
+        select
+          cs.id::text as checkout_id,
+          cs.checkout_ref,
+          cs.public_token,
+          cs.label as title,
+          cs.order_reference,
+          cs.amount_token::text as amount_token,
+          t.symbol::text as symbol,
+          cs.status::text as status,
+          cs.created_at::text as created_at,
+          cs.paid_at::text as paid_at,
+          cs.redirect_url
+        from checkout_sessions cs
+        join tokens t
+          on t.id = cs.token_id
+        where cs.merchant_id = ${context.merchant.merchantId}
+        order by cs.created_at desc
+      `;
+    });
 
     return {
       checkouts: rows.map(
@@ -1169,6 +1180,133 @@ function createPublicToken() {
   return randomBytes(10).toString("hex");
 }
 
+/**
+ * Backfills missing checkout expiry timestamps, mirrors them to payment
+ * intents, and lazily flips overdue pending/detected sessions to `expired`.
+ *
+ * Parameters:
+ * - sql: Active transaction-scoped Postgres client.
+ * - lookupId: Optional public token or checkout ref for a single checkout read.
+ * - merchantId: Optional merchant scope for dashboard list reads.
+ */
+async function reconcileCheckoutExpiry(
+  sql: DatabaseSql,
+  input: { lookupId?: string; merchantId?: string },
+): Promise<void> {
+  const policy = getCheckoutExpiryPolicy();
+  const lookupId = input.lookupId ?? null;
+  const merchantId = input.merchantId ?? null;
+
+  await sql`
+    update checkout_sessions cs
+    set
+      expires_at = cs.created_at + make_interval(secs => ${policy.ttlSeconds}),
+      updated_at = now()
+    where cs.status in ('pending', 'detected')
+      and cs.expires_at is null
+      and (${merchantId}::uuid is null or cs.merchant_id = ${merchantId}::uuid)
+      and (
+        ${lookupId}::text is null
+        or cs.public_token = ${lookupId}
+        or cs.checkout_ref = ${lookupId}
+      )
+  `;
+
+  await sql`
+    update payment_intents pi
+    set
+      expires_at = cs.expires_at,
+      updated_at = now()
+    from checkout_sessions cs
+    where pi.checkout_session_id = cs.id
+      and pi.expires_at is null
+      and cs.expires_at is not null
+      and (${merchantId}::uuid is null or cs.merchant_id = ${merchantId}::uuid)
+      and (
+        ${lookupId}::text is null
+        or cs.public_token = ${lookupId}
+        or cs.checkout_ref = ${lookupId}
+      )
+  `;
+
+  const expiredPendingRows = await sql<
+    {
+      checkout_id: string;
+      checkout_ref: string;
+      from_status: string;
+    }[]
+  >`
+    update checkout_sessions cs
+    set
+      status = 'expired',
+      updated_at = now()
+    where cs.status = 'pending'
+      and cs.expires_at is not null
+      and cs.expires_at <= now()
+      and (${merchantId}::uuid is null or cs.merchant_id = ${merchantId}::uuid)
+      and (
+        ${lookupId}::text is null
+        or cs.public_token = ${lookupId}
+        or cs.checkout_ref = ${lookupId}
+      )
+    returning
+      cs.id::text as checkout_id,
+      cs.checkout_ref,
+      'pending'::text as from_status
+  `;
+
+  const expiredDetectedRows = await sql<
+    {
+      checkout_id: string;
+      checkout_ref: string;
+      from_status: string;
+    }[]
+  >`
+    update checkout_sessions cs
+    set
+      status = 'expired',
+      updated_at = now()
+    where cs.status = 'detected'
+      and cs.expires_at is not null
+      and cs.expires_at + make_interval(secs => ${policy.detectedGraceSeconds}) <= now()
+      and (${merchantId}::uuid is null or cs.merchant_id = ${merchantId}::uuid)
+      and (
+        ${lookupId}::text is null
+        or cs.public_token = ${lookupId}
+        or cs.checkout_ref = ${lookupId}
+      )
+    returning
+      cs.id::text as checkout_id,
+      cs.checkout_ref,
+      'detected'::text as from_status
+  `;
+
+  for (const row of [...expiredPendingRows, ...expiredDetectedRows]) {
+    const message =
+      row.from_status === "detected"
+        ? `Checkout ${row.checkout_ref} expired after the confirmation grace window elapsed.`
+        : `Checkout ${row.checkout_ref} expired after the payment window elapsed.`;
+
+    await sql`
+      insert into checkout_status_history (
+        checkout_session_id,
+        from_status,
+        to_status,
+        reason_code,
+        actor_type,
+        message
+      ) values (
+        ${row.checkout_id}::uuid,
+        ${row.from_status}::checkout_status_enum,
+        'expired',
+        'expired_timeout',
+        'system',
+        ${message}
+      )
+    `;
+  }
+}
+
 function createApiSecret(environment: "test" | "live") {
   const prefix = environment === "test" ? "outpay_test_" : "outpay_live_";
   const raw = `${prefix}${randomBytes(24).toString("hex")}`;
@@ -1200,6 +1338,7 @@ export async function createDashboardCheckout(
 ): Promise<CreateCheckoutResult> {
   const context = await getMerchantContext();
   const wallet = await getPrimaryWalletContext(context.merchant.merchantId);
+  const expiryPolicy = getCheckoutExpiryPolicy();
 
   if (!wallet) {
     throw new Error(
@@ -1223,6 +1362,7 @@ export async function createDashboardCheckout(
   const database = await connectToDatabase();
   const checkoutRef = createCheckoutRef();
   const publicToken = createPublicToken();
+  const expiresAt = calculateCheckoutExpiryFromNow(new Date(), expiryPolicy);
 
   try {
     await database.sql.begin(async (sql) => {
@@ -1243,6 +1383,7 @@ export async function createDashboardCheckout(
           order_reference,
           amount_usd,
           amount_token,
+          expires_at,
           status,
           redirect_url,
           success_url,
@@ -1258,6 +1399,7 @@ export async function createDashboardCheckout(
           ${orderReference || null},
           ${amountUsd},
           ${amountUsd},
+          ${expiresAt.toISOString()},
           'pending',
           ${redirectUrl || null},
           ${redirectUrl || null},
@@ -1274,6 +1416,7 @@ export async function createDashboardCheckout(
           token_id,
           recipient_wallet_id,
           expected_amount_token,
+          expires_at,
           required_confirmations
         )
         select
@@ -1282,6 +1425,7 @@ export async function createDashboardCheckout(
           token_id,
           recipient_wallet_id,
           amount_token,
+          expires_at,
           1
         from checkout_sessions
         where checkout_ref = ${checkout.checkout_ref}
@@ -1850,8 +1994,8 @@ export async function upsertWebhookEndpoint(input: { url: string }) {
 }
 
 /**
- * Queues a test webhook event in the live delivery tables so the dashboard can
- * render actual delivery history before a worker exists.
+ * Queues a durable test webhook delivery using the live webhook tables and the
+ * BullMQ merchant-webhooks queue.
  */
 export async function queueTestWebhookDelivery() {
   const context = await getMerchantContext();
@@ -1915,6 +2059,7 @@ export async function queueTestWebhookDelivery() {
     };
 
     const payloadText = JSON.stringify(payload);
+    let webhookEventId = "";
 
     await database.sql.begin(async (sql) => {
       const [event] = await sql<
@@ -1939,37 +2084,7 @@ export async function queueTestWebhookDelivery() {
         )
         returning id::text
       `;
-
-      await sql`
-        insert into webhook_delivery_attempts (
-          webhook_event_id,
-          webhook_endpoint_id,
-          attempt_number,
-          request_headers,
-          request_body,
-          outcome,
-          response_body_excerpt,
-          duration_ms
-        ) values (
-          ${event.id},
-          ${endpoint.id},
-          1,
-          ${JSON.stringify({
-            "Content-Type": "application/json",
-            "X-Outpay-Signature": "queued-from-dashboard",
-          })}::jsonb,
-          ${payloadText}::jsonb,
-          'skipped',
-          'Queued from dashboard without an outbound worker.',
-          0
-        )
-      `;
-
-      await sql`
-        update webhook_events
-        set delivery_status = 'processing'
-        where id = ${event.id}
-      `;
+      webhookEventId = event.id;
 
       await sql`
         update webhook_endpoints
@@ -1991,6 +2106,11 @@ export async function queueTestWebhookDelivery() {
           set test_webhook_sent_at = now(),
               updated_at = now()
       `;
+    });
+
+    await enqueueMerchantWebhookJob({
+      attemptNumber: 1,
+      webhookEventId,
     });
 
     return payload;
@@ -2493,44 +2613,52 @@ export async function getPublicCheckoutData(
   const database = await connectToDatabase();
 
   try {
-    const rows = await database.sql<
-      {
-        address: string;
-        amount_token: string;
-        chain_name: string;
-        checkout_ref: string;
-        display_name: string;
-        label: string;
-        public_token: string;
-        redirect_url: string | null;
-        status: string;
-        symbol: string;
-      }[]
-    >`
-      select
-        cs.checkout_ref,
-        cs.public_token,
-        cs.label,
-        cs.amount_token::text,
-        cs.status::text as status,
-        cs.redirect_url,
-        m.display_name,
-        wa.address,
-        b.display_name as chain_name,
-        t.symbol::text as symbol
-      from checkout_sessions cs
-      join merchants m
-        on m.id = cs.merchant_id
-      join wallet_addresses wa
-        on wa.id = cs.recipient_wallet_id
-      join tokens t
-        on t.id = cs.token_id
-      join blockchains b
-        on b.id = t.chain_id
-      where cs.public_token = ${id}
-         or cs.checkout_ref = ${id}
-      limit 1
-    `;
+    const rows = await database.sql.begin(async (sql) => {
+      await reconcileCheckoutExpiry(sql, {
+        lookupId: id,
+      });
+
+      return sql<
+        {
+          address: string;
+          amount_token: string;
+          chain_name: string;
+          checkout_ref: string;
+          display_name: string;
+          expires_at: string;
+          label: string;
+          public_token: string;
+          redirect_url: string | null;
+          status: string;
+          symbol: string;
+        }[]
+      >`
+        select
+          cs.checkout_ref,
+          cs.public_token,
+          cs.label,
+          cs.amount_token::text,
+          cs.status::text as status,
+          cs.expires_at::text as expires_at,
+          cs.redirect_url,
+          m.display_name,
+          wa.address,
+          b.display_name as chain_name,
+          t.symbol::text as symbol
+        from checkout_sessions cs
+        join merchants m
+          on m.id = cs.merchant_id
+        join wallet_addresses wa
+          on wa.id = cs.recipient_wallet_id
+        join tokens t
+          on t.id = cs.token_id
+        join blockchains b
+          on b.id = t.chain_id
+        where cs.public_token = ${id}
+           or cs.checkout_ref = ${id}
+        limit 1
+      `;
+    });
 
     const checkout = rows[0];
 
@@ -2542,6 +2670,7 @@ export async function getPublicCheckoutData(
       amountLabel: formatTokenAmount(checkout.amount_token, checkout.symbol),
       chainName: checkout.chain_name,
       checkoutRef: checkout.checkout_ref,
+      expiresAt: checkout.expires_at,
       merchantName: checkout.display_name,
       orderDescription: checkout.label,
       paymentUri: `ethereum:${checkout.address}@8453?value=${checkout.amount_token}`,

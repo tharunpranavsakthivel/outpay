@@ -2,6 +2,9 @@
 
 Outpay is a Next.js 16 merchant checkout prototype for non-custodial USDC payments on Base.
 
+The payment detection worker now depends on `REDIS_URL` and can be started with
+`bun run worker:payments`.
+
 ## Local setup
 
 1. Install dependencies:
@@ -17,7 +20,10 @@ cp .env.example .env
 ```
 
 Set `BETTER_AUTH_SECRET` to a high-entropy value and keep
-`BETTER_AUTH_URL` aligned with your local app origin.
+`BETTER_AUTH_URL` aligned with your local app origin. Checkout expiry defaults
+to 30 minutes with a 10 minute detected-payment grace window; override
+`OUTPAY_CHECKOUT_TTL_SECONDS` or `OUTPAY_CHECKOUT_DETECTED_GRACE_SECONDS` in
+`.env` when you need shorter local test cycles.
 
 3. Start the app:
 

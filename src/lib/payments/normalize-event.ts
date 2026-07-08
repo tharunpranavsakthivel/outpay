@@ -17,6 +17,17 @@ export type NormalizedChainEvent = {
   txHash: string;
 };
 
+interface RpcTransferLogShape {
+  address?: unknown;
+  blockHash?: unknown;
+  blockNumber?: unknown;
+  data?: unknown;
+  logIndex?: unknown;
+  removed?: unknown;
+  topics?: unknown;
+  transactionHash?: unknown;
+}
+
 /**
  * Converts an Alchemy Address Activity payload into normalized transfer events.
  *
@@ -31,6 +42,30 @@ export function normalizeAlchemyAddressActivityPayload(
 ): NormalizedChainEvent[] {
   return readAlchemyActivities(payload)
     .map((activity) => normalizeActivity(activity))
+    .filter((event): event is NormalizedChainEvent => event !== null);
+}
+
+/**
+ * Converts raw `eth_getLogs` transfer logs into normalized chain events.
+ *
+ * Parameters:
+ * - payload: JSON-RPC `eth_getLogs` result payload.
+ * - provider: Provider name that served the scan.
+ *
+ * Returns:
+ * - Zero or more normalized USDC transfer events suitable for downstream
+ *   matching and reconciliation.
+ */
+export function normalizeRpcTransferLogs(
+  payload: unknown,
+  provider: "alchemy" | "chainstack",
+): NormalizedChainEvent[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((item) => normalizeRpcTransferLog(item, provider))
     .filter((event): event is NormalizedChainEvent => event !== null);
 }
 
@@ -55,7 +90,9 @@ function normalizeActivity(
     readString(activity.fromAddress) || readString(activity.from);
   const toAddress = readString(activity.toAddress) || readString(activity.to);
   const blockHash = readString(activity.blockHash) ?? undefined;
-  const blockNumber = parseBigIntField(activity.blockNum ?? activity.blockNumber);
+  const blockNumber = parseBigIntField(
+    activity.blockNum ?? activity.blockNumber,
+  );
   const logIndex = parseIntegerField(activity.logIndex);
   const amountUnits = parseAmountUnits(activity);
 
@@ -80,6 +117,64 @@ function normalizeActivity(
     fromAddress,
     logIndex,
     provider: "alchemy",
+    toAddress,
+    tokenContract,
+    txHash,
+  };
+}
+
+/**
+ * Normalizes one `eth_getLogs` transfer log.
+ *
+ * Parameters:
+ * - payload: Raw log object returned by JSON-RPC.
+ * - provider: Provider name that served the scan.
+ *
+ * Returns:
+ * - Normalized transfer event, or `null` when required fields are absent or
+ *   the log was removed during a reorg.
+ */
+function normalizeRpcTransferLog(
+  payload: unknown,
+  provider: "alchemy" | "chainstack",
+): NormalizedChainEvent | null {
+  const log = asRecord(payload) as RpcTransferLogShape | null;
+  const topics = Array.isArray(log?.topics) ? log.topics : null;
+
+  if (!log || topics === null || log.removed === true || topics.length < 3) {
+    return null;
+  }
+
+  const tokenContract = readString(log.address);
+  const txHash = readString(log.transactionHash);
+  const blockHash = readString(log.blockHash) ?? undefined;
+  const blockNumber = parseBigIntField(log.blockNumber);
+  const logIndex = parseIntegerField(log.logIndex);
+  const amountUnits = parseBigIntField(log.data);
+  const fromAddress = parseIndexedAddress(topics[1]);
+  const toAddress = parseIndexedAddress(topics[2]);
+
+  if (
+    !tokenContract ||
+    !txHash ||
+    !fromAddress ||
+    !toAddress ||
+    blockNumber === null ||
+    logIndex === null ||
+    amountUnits === null
+  ) {
+    return null;
+  }
+
+  return {
+    amountUnits,
+    blockHash,
+    blockNumber,
+    chain: "base",
+    eventName: "Transfer",
+    fromAddress,
+    logIndex,
+    provider,
     toAddress,
     tokenContract,
     txHash,
@@ -207,6 +302,25 @@ function parseIntegerField(value: unknown): number | null {
 
   const parsedNumber = Number(parsedBigInt);
   return Number.isSafeInteger(parsedNumber) ? parsedNumber : null;
+}
+
+/**
+ * Parses an indexed 32-byte address topic into a canonical `0x` address.
+ *
+ * Parameters:
+ * - value: Indexed topic value from `eth_getLogs`.
+ *
+ * Returns:
+ * - Lower 20-byte EVM address string, or `null` when invalid.
+ */
+function parseIndexedAddress(value: unknown): string | null {
+  const topic = readString(value)?.trim().toLowerCase();
+
+  if (!topic || !/^0x[0-9a-f]{64}$/u.test(topic)) {
+    return null;
+  }
+
+  return `0x${topic.slice(-40)}`;
 }
 
 /**

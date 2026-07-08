@@ -4,7 +4,6 @@
  */
 
 import { createHash } from "node:crypto";
-import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
 import { connectToDatabase } from "@/lib/database/client";
 import { normalizeAlchemyAddressActivityPayload } from "@/lib/payments/normalize-event";
@@ -13,12 +12,16 @@ import {
   extractAlchemyProviderEventId,
   verifyWebhookSignature,
 } from "@/lib/providers/alchemy";
+import { enqueueChainEventJob } from "@/lib/queues/jobs";
 
 export const runtime = "nodejs";
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 300;
-const rateLimitBuckets = new Map<string, { count: number; windowStartedAt: number }>();
+const rateLimitBuckets = new Map<
+  string,
+  { count: number; windowStartedAt: number }
+>();
 
 /**
  * Handles incoming Alchemy webhook deliveries.
@@ -75,11 +78,15 @@ export async function POST(request: Request) {
     });
 
     if (!signatureValid) {
-      logAlchemyWebhook("warn", "Rejected Alchemy webhook with invalid signature", {
-        providerEventId,
-        signaturePresent: Boolean(signatureHeader),
-        sourceIp,
-      });
+      logAlchemyWebhook(
+        "warn",
+        "Rejected Alchemy webhook with invalid signature",
+        {
+          providerEventId,
+          signaturePresent: Boolean(signatureHeader),
+          sourceIp,
+        },
+      );
 
       return jsonError(
         401,
@@ -89,32 +96,16 @@ export async function POST(request: Request) {
     }
 
     if (insertedRawEventId && parseError === undefined) {
-      after(async () => {
-        try {
-          const normalizedEvents =
-            normalizeAlchemyAddressActivityPayload(parsedPayload);
-          await enqueueNormalizedAlchemyEvents({
-            normalizedEvents,
-            rawEventId: insertedRawEventId,
-          });
-        } catch (error) {
-          logAlchemyWebhook(
-            "error",
-            "Alchemy webhook async follow-up failed",
-            {
-              error:
-                error instanceof Error ? error.message : "Unknown async error",
-              providerEventId,
-            },
-          );
-        }
+      const normalizedEvents =
+        normalizeAlchemyAddressActivityPayload(parsedPayload);
+      await enqueueNormalizedAlchemyEvents({
+        normalizedEvents,
+        rawEventId: insertedRawEventId,
       });
     } else if (parseError) {
-      after(() => {
-        logAlchemyWebhook("warn", "Stored malformed Alchemy webhook payload", {
-          parseError,
-          providerEventId,
-        });
+      logAlchemyWebhook("warn", "Stored malformed Alchemy webhook payload", {
+        parseError,
+        providerEventId,
       });
     }
 
@@ -180,8 +171,7 @@ async function persistRawAlchemyEvent(input: {
 }
 
 /**
- * Schedules normalized chain events for downstream processing. T-7 will replace
- * this stub with a real queue publisher.
+ * Schedules normalized chain events for downstream durable queue processing.
  *
  * Parameters:
  * - normalizedEvents: Events extracted from the verified webhook payload.
@@ -191,11 +181,17 @@ async function enqueueNormalizedAlchemyEvents(input: {
   normalizedEvents: ReturnType<typeof normalizeAlchemyAddressActivityPayload>;
   rawEventId: string;
 }): Promise<void> {
-  logAlchemyWebhook("info", "Alchemy webhook normalized for downstream queue", {
+  for (const normalizedEvent of input.normalizedEvents) {
+    await enqueueChainEventJob({
+      chainEvent: normalizedEvent,
+      rawEventId: input.rawEventId,
+    });
+  }
+
+  logAlchemyWebhook("info", "Alchemy webhook enqueued normalized events", {
     eventCount: input.normalizedEvents.length,
     queue: "chain-events",
     rawEventId: input.rawEventId,
-    skippedEnqueue: true,
   });
 }
 

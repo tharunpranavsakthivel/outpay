@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Copy, Info } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { Button } from "../components/ui/Button";
 import { StatusPill } from "../components/ui/StatusPill";
 import { useToast } from "../components/ui/Toast";
@@ -44,32 +44,69 @@ export default function CustomerCheckout({
 }) {
   const [checkout, setCheckout] = useState(initialData);
   const [copied, setCopied] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const config = STATUS_CONFIG[checkout.status];
   const toast = useToast();
+  const expiresAtMs = Date.parse(checkout.expiresAt);
+  const secondsRemaining =
+    checkout.status === "waiting" && Number.isFinite(expiresAtMs)
+      ? Math.max(0, Math.ceil((expiresAtMs - nowMs) / 1000))
+      : null;
+
+  const refreshCheckout = useEffectEvent(async () => {
+    const response = await fetch(
+      `/api/public/checkouts/${checkout.publicToken}`,
+      {
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return;
+    }
+
+    const nextCheckout = (await response.json()) as PublicCheckoutData;
+    setCheckout(nextCheckout);
+  });
 
   useEffect(() => {
     if (checkout.status === "paid" || checkout.status === "expired") {
       return;
     }
 
-    const intervalId = window.setInterval(async () => {
-      const response = await fetch(
-        `/api/public/checkouts/${checkout.publicToken}`,
-        {
-          cache: "no-store",
-        },
-      );
-
-      if (!response.ok) {
-        return;
-      }
-
-      const nextCheckout = (await response.json()) as PublicCheckoutData;
-      setCheckout(nextCheckout);
+    const intervalId = window.setInterval(() => {
+      void refreshCheckout();
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [checkout.publicToken, checkout.status]);
+  }, [checkout.status, refreshCheckout]);
+
+  useEffect(() => {
+    if (checkout.status === "paid" || checkout.status === "expired") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [checkout.status]);
+
+  useEffect(() => {
+    const nextExpiresAtMs = Date.parse(checkout.expiresAt);
+
+    if (checkout.status !== "waiting" || !Number.isFinite(nextExpiresAtMs)) {
+      return;
+    }
+
+    const refreshDelayMs = Math.max(0, nextExpiresAtMs - Date.now() + 250);
+    const timeoutId = window.setTimeout(() => {
+      void refreshCheckout();
+    }, refreshDelayMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [checkout.status, checkout.expiresAt, refreshCheckout]);
 
   const copyAddress = () => {
     navigator.clipboard
@@ -173,6 +210,15 @@ export default function CustomerCheckout({
             <StatusPill variant={config.variant}>{config.label}</StatusPill>
           </div>
 
+          {secondsRemaining !== null && (
+            <div className="flex items-center justify-between text-sm px-3.5 py-3 bg-background-surface-200 border border-border rounded-lg">
+              <span className="text-foreground-lighter">Time remaining</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {formatCountdown(secondsRemaining)}
+              </span>
+            </div>
+          )}
+
           <div className="text-[11.5px] text-foreground-lighter text-center leading-[1.6] pt-3.5 border-t border-border mt-0.5">
             Non-custodial: this payment goes directly from your wallet to the
             merchant&apos;s wallet. Outpay never holds your funds.
@@ -181,4 +227,20 @@ export default function CustomerCheckout({
       </div>
     </div>
   );
+}
+
+/**
+ * Formats a remaining-second counter for the hosted checkout countdown timer.
+ *
+ * Parameters:
+ * - totalSeconds: Rounded-up number of seconds remaining before expiry.
+ *
+ * Returns:
+ * - `MM:SS` countdown label for the customer checkout page.
+ */
+function formatCountdown(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

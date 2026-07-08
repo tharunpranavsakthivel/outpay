@@ -8,6 +8,8 @@
     "dev": "next dev -p 3001",
     "build": "next build --webpack",
     "start": "next start",
+    "worker:payments": "bun workers/payment-listener.ts",
+    "worker:reconciler": "bun workers/reconciler.ts",
     "db:clear": "bun scripts/db/clear.ts",
     "db:migrate": "bun scripts/db/migrate.ts up",
     "db:migrate:down": "bun scripts/db/migrate.ts down",
@@ -20,6 +22,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1081.0",
     "better-auth": "^1.6.23",
+    "bullmq": "^5.58.0",
+    "ioredis": "^5.8.1",
     "lucide-react": "^1.23.0",
     "next": "16.2.10",
     "pg": "^8.16.3",
