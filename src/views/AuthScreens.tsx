@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useRef, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
+import type { WalletSignatureProof } from "@/lib/wallet/browser-wallet";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -17,6 +18,7 @@ import {
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
+import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
 
 const STEP_LABELS = ["Store details", "Wallet address", "Confirm"];
 const INLINE_ACTION_CLASS =
@@ -488,6 +490,9 @@ export function OnboardingScreen() {
   const [storeDescription, setStoreDescription] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [walletConfirmed, setWalletConfirmed] = useState(false);
+  const [walletProof, setWalletProof] = useState<WalletSignatureProof | null>(
+    null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -496,7 +501,20 @@ export function OnboardingScreen() {
   const toast = useToast();
 
   const stepOneDisabled = !storeName.trim();
-  const stepTwoDisabled = !walletAddress.trim() || !walletConfirmed;
+  const walletVerified =
+    walletProof !== null &&
+    walletProof.address.toLowerCase() === walletAddress.trim().toLowerCase();
+  const stepTwoDisabled =
+    !walletAddress.trim() || !walletConfirmed || !walletVerified;
+
+  const updateWalletAddress = (nextAddress: string) => {
+    setWalletAddress(nextAddress);
+    setWalletProof((current) =>
+      current && current.address.toLowerCase() === nextAddress.toLowerCase()
+        ? current
+        : null,
+    );
+  };
 
   const submitOnboarding = () => {
     startTransition(async () => {
@@ -513,6 +531,8 @@ export function OnboardingScreen() {
             storeName,
             walletAddress,
             walletConfirmed,
+            walletSignature: walletProof?.signature ?? "",
+            walletSignatureTimestampMs: walletProof?.timestampMs ?? 0,
           }),
         });
         const payload = (await response.json()) as
@@ -672,7 +692,13 @@ export function OnboardingScreen() {
                 label="Wallet address (Base)"
                 placeholder="0x..."
                 value={walletAddress}
-                onChange={(event) => setWalletAddress(event.target.value)}
+                onChange={(event) => updateWalletAddress(event.target.value)}
+              />
+              <WalletVerificationPanel
+                address={walletAddress}
+                onAddressChange={updateWalletAddress}
+                proof={walletProof}
+                onProofChange={setWalletProof}
               />
               <div className="flex gap-2 items-start text-xs leading-[1.5] bg-warning/10 border border-border-warning rounded-lg p-3 text-foreground">
                 <AlertTriangle size={14} className="shrink-0 mt-0.5" />

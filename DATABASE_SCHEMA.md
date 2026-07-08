@@ -429,10 +429,12 @@ Database support required:
 | `label` | `text` | no | `null` | internal label |
 | `is_primary` | `boolean` | yes | `false` | active payout wallet |
 | `status` | `wallet_status_enum` | yes | `'active'` | active/replaced/disabled |
-| `verified_at` | `timestamptz` | no | `null` | future ownership proof |
+| `verified_at` | `timestamptz` | no | `null` | set once the merchant proves control via wallet signature (T-2) |
+| `verification_signature` | `text` | no | `null` | raw `personal_sign` signature over the ownership challenge message, retained for audit |
 | `replaced_by_wallet_id` | `uuid` | no | `null` | self FK |
 | `created_by_user_id` | `uuid` | no | `null` | FK |
 | `created_at` | `timestamptz` | yes | `now()` | |
+| `updated_at` | `timestamptz` | yes | `now()` | maintained by `trg_wallet_addresses_updated_at` |
 
 - Foreign keys:
   - `merchant_id -> merchants.id`
@@ -588,6 +590,7 @@ Database support required:
 | `redirect_url` | `text` | no | `null` | post-payment redirect |
 | `success_url` | `text` | no | `null` | future explicit success URL |
 | `cancel_url` | `text` | no | `null` | future cancel path |
+| `idempotency_key` | `text` | no | `null` | caller-supplied key, unique per merchant, dedupes retried creation requests |
 | `expires_at` | `timestamptz` | no | `null` | needed for expired state |
 | `paid_at` | `timestamptz` | no | `null` | receipt data |
 | `detected_at` | `timestamptz` | no | `null` | detected-confirming state |
@@ -611,6 +614,7 @@ Database support required:
 - Unique constraints:
   - `unique(checkout_ref)`
   - `unique(public_token)`
+  - `unique(merchant_id, idempotency_key)` (`uq_checkout_sessions_merchant_idempotency_key`)
 - Indexes:
   - `idx_checkout_sessions_merchant_created_at`
   - `idx_checkout_sessions_merchant_status`
@@ -763,6 +767,8 @@ Database support required:
   - `idx_payments_sender_address`
   - `idx_payments_recipient_address`
   - `idx_payments_confirmed_at`
+  - `idx_payments_onchain_transaction_id`
+  - `idx_payments_payment_intent_id`
 - RLS:
   - Merchant members can read only their merchant payments.
   - Anonymous receipt access should use a limited view keyed by a receipt token, not direct table exposure.
@@ -803,6 +809,49 @@ Database support required:
 - RLS:
   - Merchant members can read own merchant failures through checkout join.
   - Worker/service role inserts.
+
+### Table: `provider_events_raw`
+
+- Purpose: Stores raw webhook/RPC payloads from Alchemy and later any other on-chain data provider before they are normalized, so detection failures can be replayed or debugged from the original payload.
+- Justified by: `ARCHITECTURE.md` §14.6 (payment-detection pipeline)
+
+| Column | Type | Required | Default | Notes |
+|---|---|---:|---|---|
+| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
+| `provider` | `text` | yes | none | e.g. `alchemy` |
+| `provider_event_id` | `text` | no | `null` | provider-assigned event id, used for de-dupe |
+| `chain` | `text` | yes | none | chain slug the event was observed on |
+| `payload` | `jsonb` | yes | none | raw provider payload |
+| `signature_valid` | `boolean` | yes | `false` | whether the provider's webhook signature verified |
+| `received_at` | `timestamptz` | yes | `now()` | |
+| `processed_at` | `timestamptz` | no | `null` | set once normalized into `chain_events` |
+| `error` | `text` | no | `null` | processing failure detail |
+
+- Unique constraints:
+  - `unique(provider, provider_event_id)`
+- RLS:
+  - Worker/service role only; not merchant-readable.
+
+### Table: `chain_cursors`
+
+- Purpose: Tracks the last safely-scanned block per chain/provider/cursor type so RPC scanning workers can resume without re-scanning or skipping blocks.
+- Justified by: `ARCHITECTURE.md` §13.3, §14.12 (payment-detection pipeline)
+
+| Column | Type | Required | Default | Notes |
+|---|---|---:|---|---|
+| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
+| `chain` | `text` | yes | none | chain slug |
+| `provider` | `text` | yes | none | data source for this cursor |
+| `cursor_type` | `text` | yes | none | distinguishes multiple scan strategies per chain/provider |
+| `last_scanned_block` | `bigint` | yes | none | only advanced after data is durably written |
+| `last_success_at` | `timestamptz` | no | `null` | |
+| `last_error_at` | `timestamptz` | no | `null` | |
+| `updated_at` | `timestamptz` | yes | `now()` | |
+
+- Unique constraints:
+  - `unique(chain, provider, cursor_type)`
+- RLS:
+  - Worker/service role only; not merchant-readable.
 
 ### Table: `merchant_usage_monthly`
 
@@ -1074,6 +1123,8 @@ Database support required:
 - Indexes:
   - `idx_webhook_events_merchant_emitted_at`
   - `idx_webhook_events_delivery_status`
+  - `idx_webhook_events_checkout_session_id`
+  - `idx_webhook_events_payment_id`
 - RLS:
   - Merchant members can read their own events.
   - Worker/service role inserts/updates.
@@ -1431,6 +1482,10 @@ Recommended creation order:
 32. Create `event_logs`
 33. Create `error_logs`
 34. Add policies, indexes, views, and triggers
+35. Create `provider_events_raw`, `chain_cursors`; add `checkout_sessions.idempotency_key`, `wallet_addresses.updated_at`, and the `payments`/`webhook_events` join-column indexes (`db/migrations/0004_payment_pipeline_support.up.sql`)
+36. Add `wallet_addresses.verification_signature` to retain the wallet-ownership signature proof captured during onboarding/wallet replacement (`db/migrations/0005_wallet_verification_signature.up.sql`)
+
+`db/migrations/` is the source of truth for the schema that actually exists; this document (and the SQL in §12 below) reflects the state as of the initial migration and is not kept in lockstep with every later migration.
 
 ## 12. Final PostgreSQL/Supabase SQL Schema
 

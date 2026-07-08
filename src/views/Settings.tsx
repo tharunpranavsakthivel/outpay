@@ -15,8 +15,10 @@ import {
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
 import { useToast } from "../components/ui/Toast";
+import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
 import { formatDashboardDate } from "../lib/dashboard/format";
 import type { StoreSettingsData } from "../lib/dashboard/types";
+import type { WalletSignatureProof } from "../lib/wallet/browser-wallet";
 
 /**
  * Merchant settings view backed by merchants, wallet_addresses, and
@@ -42,6 +44,9 @@ export default function Settings({
   const [modal, setModal] = useState<"wallet" | "deactivate" | null>(null);
   const [newWalletAddress, setNewWalletAddress] = useState("");
   const [walletConfirmed, setWalletConfirmed] = useState(false);
+  const [walletProof, setWalletProof] = useState<WalletSignatureProof | null>(
+    null,
+  );
   const [deactivateConfirmText, setDeactivateConfirmText] = useState("");
   const [storeSecretPrefix, setStoreSecretPrefix] = useState(
     initialData.webhookSecretPrefix,
@@ -52,7 +57,20 @@ export default function Settings({
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
 
-  const walletConfirmDisabled = !walletConfirmed || !newWalletAddress;
+  const walletVerified =
+    walletProof !== null &&
+    walletProof.address.toLowerCase() === newWalletAddress.trim().toLowerCase();
+  const walletConfirmDisabled =
+    !walletConfirmed || !newWalletAddress || !walletVerified;
+
+  const updateNewWalletAddress = (nextAddress: string) => {
+    setNewWalletAddress(nextAddress);
+    setWalletProof((current) =>
+      current && current.address.toLowerCase() === nextAddress.toLowerCase()
+        ? current
+        : null,
+    );
+  };
   const deactivateDisabled =
     deactivateConfirmText.trim() !== initialData.merchant.storeName;
 
@@ -91,6 +109,8 @@ export default function Settings({
         body: JSON.stringify({
           confirmed: walletConfirmed,
           walletAddress: newWalletAddress,
+          walletSignature: walletProof?.signature ?? "",
+          walletSignatureTimestampMs: walletProof?.timestampMs ?? 0,
         }),
         headers: {
           "Content-Type": "application/json",
@@ -110,6 +130,7 @@ export default function Settings({
 
       setWalletAddress((payload as { walletAddress: string }).walletAddress);
       setModal(null);
+      setWalletProof(null);
       toast.success("Primary payout wallet updated.");
     });
   };
@@ -288,6 +309,7 @@ export default function Settings({
                     setModal("wallet");
                     setNewWalletAddress("");
                     setWalletConfirmed(false);
+                    setWalletProof(null);
                   }}
                 >
                   Change wallet
@@ -411,7 +433,15 @@ export default function Settings({
                   label={`New wallet address (${initialData.chainName})`}
                   placeholder="0x…"
                   value={newWalletAddress}
-                  onChange={(event) => setNewWalletAddress(event.target.value)}
+                  onChange={(event) =>
+                    updateNewWalletAddress(event.target.value)
+                  }
+                />
+                <WalletVerificationPanel
+                  address={newWalletAddress}
+                  onAddressChange={updateNewWalletAddress}
+                  proof={walletProof}
+                  onProofChange={setWalletProof}
                 />
                 <div className="flex items-start gap-2.5">
                   <Checkbox

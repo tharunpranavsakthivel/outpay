@@ -16,6 +16,7 @@ import {
   TIGRIS_BUCKET_NAME,
   uploadObject,
 } from "@/lib/storage/tigris";
+import { verifyWalletOwnershipSignature } from "@/lib/wallet/verify-signature";
 import {
   formatDashboardDate,
   formatShortDate,
@@ -409,6 +410,8 @@ export async function completeMerchantOnboarding(input: {
   storeName: string;
   walletAddress: string;
   walletConfirmed: boolean;
+  walletSignature: string;
+  walletSignatureTimestampMs: number;
 }) {
   const session = await getServerSession();
   const email = session?.user.email?.trim().toLowerCase();
@@ -432,6 +435,16 @@ export async function completeMerchantOnboarding(input: {
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
     throw new Error("Wallet address must be a valid Base EVM address.");
+  }
+
+  const walletVerification = await verifyWalletOwnershipSignature({
+    address: walletAddress,
+    signature: input.walletSignature,
+    timestampMs: input.walletSignatureTimestampMs,
+  });
+
+  if (!walletVerification.ok) {
+    throw new Error(walletVerification.message);
   }
 
   const database = await connectToDatabase();
@@ -605,6 +618,7 @@ export async function completeMerchantOnboarding(input: {
             is_primary,
             status,
             verified_at,
+            verification_signature,
             created_by_user_id
           ) values (
             ${merchantId}::uuid,
@@ -616,6 +630,7 @@ export async function completeMerchantOnboarding(input: {
             true,
             'active',
             now(),
+            ${input.walletSignature},
             ${userId}::uuid
           )
         `;
@@ -641,6 +656,7 @@ export async function completeMerchantOnboarding(input: {
             is_primary,
             status,
             verified_at,
+            verification_signature,
             created_by_user_id
           ) values (
             ${merchantId}::uuid,
@@ -652,6 +668,7 @@ export async function completeMerchantOnboarding(input: {
             true,
             'active',
             now(),
+            ${input.walletSignature},
             ${userId}::uuid
           )
         `;
@@ -1644,6 +1661,8 @@ export async function updateStoreProfile(input: {
 export async function replacePrimaryWallet(input: {
   confirmed: boolean;
   walletAddress: string;
+  walletSignature: string;
+  walletSignatureTimestampMs: number;
 }) {
   const context = await getMerchantContext();
   const currentWallet = await getPrimaryWalletContext(
@@ -1654,7 +1673,9 @@ export async function replacePrimaryWallet(input: {
     throw new Error("You must confirm the new wallet address before saving.");
   }
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(input.walletAddress.trim())) {
+  const nextAddress = input.walletAddress.trim();
+
+  if (!/^0x[a-fA-F0-9]{40}$/.test(nextAddress)) {
     throw new Error("Wallet address must be a valid Base EVM address.");
   }
 
@@ -1662,8 +1683,17 @@ export async function replacePrimaryWallet(input: {
     throw new Error("No Base payout wallet is configured for this merchant.");
   }
 
+  const walletVerification = await verifyWalletOwnershipSignature({
+    address: nextAddress,
+    signature: input.walletSignature,
+    timestampMs: input.walletSignatureTimestampMs,
+  });
+
+  if (!walletVerification.ok) {
+    throw new Error(walletVerification.message);
+  }
+
   const database = await connectToDatabase();
-  const nextAddress = input.walletAddress.trim();
 
   try {
     await database.sql.begin(async (sql) => {
@@ -1682,6 +1712,7 @@ export async function replacePrimaryWallet(input: {
           is_primary,
           status,
           verified_at,
+          verification_signature,
           created_by_user_id
         )
         select
@@ -1694,6 +1725,7 @@ export async function replacePrimaryWallet(input: {
           true,
           'active',
           now(),
+          ${input.walletSignature},
           ${context.userId}
         from wallet_addresses wa
         where wa.id = ${currentWallet.walletId}

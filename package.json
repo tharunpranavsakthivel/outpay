@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "alchemy:add-address": "bun scripts/add-alchemy-address.ts",
     "dev": "next dev -p 3001",
     "build": "next build --webpack",
     "start": "next start",
@@ -12,6 +13,7 @@
     "db:migrate:down": "bun scripts/db/migrate.ts down",
     "db:status": "bun scripts/db/migrate.ts status",
     "db:validate": "bun scripts/db/validate.ts",
+    "test": "bun test",
     "lint": "biome check",
     "format": "biome format --write"
   },
@@ -23,7 +25,8 @@
     "pg": "^8.16.3",
     "postgres": "^3.4.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "viem": "2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
