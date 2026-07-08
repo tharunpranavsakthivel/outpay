@@ -31,6 +31,35 @@ const EVENT = {
 } as const;
 
 describe("reconciliation worker", () => {
+  it("prioritizes Chainstack scans when the provider order resolver says Alchemy is degraded", async () => {
+    const scannedProviders: string[] = [];
+    const reconciler = createReconciler({
+      fetchLatestBlockNumber: async () => 12_345_678n,
+      fetchTransferLogs: async (provider) => {
+        scannedProviders.push(provider);
+        return [];
+      },
+      loadCursor: async () => 12_345_599n,
+      logEvent: () => undefined,
+      markCursorError: async () => undefined,
+      matchEvent: async () => ({ evaluation: null }),
+      recheckPayment: async () => ({ evaluation: null }),
+      resolveProviderScanOrder: async () => ["chainstack", "alchemy"],
+      reserveRawEvent: async () => ({
+        id: "raw-recent-priority",
+        processed_at: null,
+      }),
+      saveCursorSuccess: async () => undefined,
+      selectConfirmationCheckoutSessionIds: async () => [],
+    });
+
+    const summary = await reconciler.runRecentScanCycle();
+
+    expect(scannedProviders).toEqual(["chainstack", "alchemy"]);
+    expect(summary.providers[0]?.provider).toBe("chainstack");
+    expect(summary.providers[1]?.provider).toBe("alchemy");
+  });
+
   it("recovers a missed transfer during one recent scan cycle", async () => {
     const saveCursorSuccess = mock(async () => undefined);
     const reserveRawEvent = mock(async () => ({
@@ -53,6 +82,7 @@ describe("reconciliation worker", () => {
       markCursorError: async () => undefined,
       matchEvent,
       recheckPayment: async () => ({ evaluation: null }),
+      resolveProviderScanOrder: async () => ["alchemy", "chainstack"],
       reserveRawEvent,
       saveCursorSuccess,
       selectConfirmationCheckoutSessionIds: async () => [],
@@ -93,6 +123,7 @@ describe("reconciliation worker", () => {
         throw new Error("database write failed");
       },
       recheckPayment: async () => ({ evaluation: null }),
+      resolveProviderScanOrder: async () => ["alchemy", "chainstack"],
       reserveRawEvent: async () => ({
         id: "raw-failure-1",
         processed_at: null,

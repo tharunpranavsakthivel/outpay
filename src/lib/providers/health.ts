@@ -7,12 +7,14 @@
 import { connectToDatabase } from "@/lib/database/client";
 import { alchemyRpcRequest } from "@/lib/providers/alchemy";
 import { chainstackRpcRequest } from "@/lib/providers/chainstack";
-import type { ProviderHealthStatus, RpcProviderName } from "@/lib/providers/provider-router";
+import type {
+  ProviderHealthStatus,
+  RpcProviderName,
+} from "@/lib/providers/provider-router";
 
 const BASE_CHAIN = "base";
 const BASE_CHAIN_ID_HEX = "0x2105";
-const BASE_USDC_CONTRACT_ADDRESS =
-  "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913";
+const BASE_USDC_CONTRACT_ADDRESS = "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913";
 const TRANSFER_EVENT_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const HEALTH_CHECK_INTERVAL_SECONDS = parsePositiveIntegerEnv(
@@ -24,6 +26,8 @@ const HEALTH_FAILURE_WINDOW_MS = 2 * 60_000;
 const HEALTH_FAILURE_THRESHOLD = 5;
 const HEALTH_RECOVERY_SUCCESS_COUNT = 5;
 const HIGH_LATENCY_THRESHOLD_MS = 3_000;
+const HIGH_LATENCY_RATE_THRESHOLD = 0.5;
+const DOWN_CONSECUTIVE_FAILURE_THRESHOLD = 3;
 
 export interface ProviderHealthCheckResult {
   blockNumber: bigint | null;
@@ -31,8 +35,11 @@ export interface ProviderHealthCheckResult {
   checkedAt: Date;
   error: string | null;
   latencyMs: number | null;
+  previousStatus: ProviderHealthStatus | null;
   provider: RpcProviderName;
+  rollingWindow: ProviderHealthWindowSnapshot;
   status: ProviderHealthStatus;
+  transition: ProviderHealthTransition | null;
 }
 
 export interface ProviderHealthObservation {
@@ -44,6 +51,25 @@ export interface ProviderHealthObservation {
   rateLimited: boolean;
   status?: ProviderHealthStatus | null;
   timedOut: boolean;
+}
+
+export interface ProviderHealthTransition {
+  nextStatus: ProviderHealthStatus;
+  previousStatus: ProviderHealthStatus | null;
+}
+
+export interface ProviderHealthWindowSnapshot {
+  consecutiveFailures: number;
+  consecutiveSuccesses: number;
+  errorCount: number;
+  errorRate: number;
+  highLatencyCount: number;
+  highLatencyRate: number;
+  observationCount: number;
+  rateLimitCount: number;
+  rateLimitRate: number;
+  timeoutCount: number;
+  timeoutRate: number;
 }
 
 interface StoredProviderHealthRow {
@@ -95,7 +121,10 @@ export async function runProviderHealthCheck(
   provider: RpcProviderName,
 ): Promise<ProviderHealthCheckResult> {
   const checkedAt = new Date();
-  const recentHistory = await loadRecentProviderHealthRows(provider, BASE_CHAIN);
+  const recentHistory = await loadRecentProviderHealthRows(
+    provider,
+    BASE_CHAIN,
+  );
   const previousStatus = recentHistory[0]?.status ?? null;
 
   try {
@@ -145,11 +174,18 @@ export async function runProviderHealthCheck(
       status: null,
       timedOut: false,
     };
+    const rollingWindow = summarizeProviderHealthWindow([
+      currentObservation,
+      ...recentHistory.map(mapStoredRowToObservation(provider)),
+    ]);
     const status = deriveProviderHealthStatus({
       currentObservation,
       previousStatus,
-      recentObservations: recentHistory.map(mapStoredRowToObservation(provider)),
+      recentObservations: recentHistory.map(
+        mapStoredRowToObservation(provider),
+      ),
     });
+    const transition = deriveProviderHealthTransition(previousStatus, status);
 
     await insertProviderHealthCheck({
       blockNumber,
@@ -167,16 +203,30 @@ export async function runProviderHealthCheck(
       checkedAt,
       error: null,
       latencyMs,
+      previousStatus,
       provider,
+      rollingWindow,
       status,
+      transition,
     };
   } catch (error) {
-    const currentObservation = classifyFailedObservation(provider, checkedAt, error);
+    const currentObservation = classifyFailedObservation(
+      provider,
+      checkedAt,
+      error,
+    );
+    const rollingWindow = summarizeProviderHealthWindow([
+      currentObservation,
+      ...recentHistory.map(mapStoredRowToObservation(provider)),
+    ]);
     const status = deriveProviderHealthStatus({
       currentObservation,
       previousStatus,
-      recentObservations: recentHistory.map(mapStoredRowToObservation(provider)),
+      recentObservations: recentHistory.map(
+        mapStoredRowToObservation(provider),
+      ),
     });
+    const transition = deriveProviderHealthTransition(previousStatus, status);
 
     await insertProviderHealthCheck({
       blockNumber: null,
@@ -187,7 +237,13 @@ export async function runProviderHealthCheck(
       provider,
       status,
     });
-    logProviderHealthEvent(provider, status, currentObservation.error);
+    logProviderHealthEvent({
+      error: currentObservation.error,
+      provider,
+      rollingWindow,
+      status,
+      transition,
+    });
 
     return {
       blockNumber: null,
@@ -195,8 +251,11 @@ export async function runProviderHealthCheck(
       checkedAt,
       error: currentObservation.error,
       latencyMs: currentObservation.latencyMs,
+      previousStatus,
       provider,
+      rollingWindow,
       status,
+      transition,
     };
   }
 }
@@ -259,52 +318,139 @@ export function deriveProviderHealthStatus(input: {
         HEALTH_FAILURE_WINDOW_MS,
     ),
   ].sort((left, right) => right.checkedAt.getTime() - left.checkedAt.getTime());
-  const failureCount = relevantHistory.filter((observation) => !observation.ok).length;
-  const consecutiveSuccesses =
-    countLeadingObservations(relevantHistory, (observation) => observation.ok);
-  const consecutiveFailures =
-    countLeadingObservations(relevantHistory, (observation) => !observation.ok);
+  const rollingWindow = summarizeProviderHealthWindow(relevantHistory);
   const currentObservation = input.currentObservation;
   const recoveringBaseline =
     input.previousStatus === "degraded" ||
     input.previousStatus === "down" ||
     input.previousStatus === "rate_limited" ||
     input.previousStatus === "recovering";
+  const degradedForWindow =
+    rollingWindow.errorCount > HEALTH_FAILURE_THRESHOLD ||
+    rollingWindow.highLatencyRate >= HIGH_LATENCY_RATE_THRESHOLD;
 
   if (currentObservation.rateLimited) {
     return "rate_limited";
   }
 
   if (!currentObservation.ok) {
-    if (currentObservation.timedOut || consecutiveFailures >= 3) {
+    if (
+      (input.previousStatus === "degraded" ||
+        input.previousStatus === "down" ||
+        input.previousStatus === "rate_limited") &&
+      rollingWindow.consecutiveFailures >= DOWN_CONSECUTIVE_FAILURE_THRESHOLD &&
+      (currentObservation.timedOut || degradedForWindow)
+    ) {
       return "down";
     }
 
-    return "degraded";
+    if (degradedForWindow) {
+      return "degraded";
+    }
+
+    return input.previousStatus === "recovering"
+      ? "degraded"
+      : (input.previousStatus ?? "healthy");
   }
 
   if (
     recoveringBaseline &&
-    consecutiveSuccesses < HEALTH_RECOVERY_SUCCESS_COUNT
+    rollingWindow.consecutiveSuccesses < HEALTH_RECOVERY_SUCCESS_COUNT
   ) {
     return "recovering";
   }
 
-  if (
-    failureCount > HEALTH_FAILURE_THRESHOLD ||
-    (currentObservation.latencyMs ?? 0) >= HIGH_LATENCY_THRESHOLD_MS
-  ) {
+  if (degradedForWindow) {
     return "degraded";
   }
 
   if (
     recoveringBaseline &&
-    consecutiveSuccesses >= HEALTH_RECOVERY_SUCCESS_COUNT
+    rollingWindow.consecutiveSuccesses >= HEALTH_RECOVERY_SUCCESS_COUNT
   ) {
     return "healthy";
   }
 
   return "healthy";
+}
+
+/**
+ * Builds a transition record when the provider changes state.
+ *
+ * Parameters:
+ * - previousStatus: Latest persisted state before the current probe.
+ * - nextStatus: Newly derived provider state.
+ *
+ * Returns:
+ * - Transition metadata for alert fan-out, or `null` when the state did not
+ *   change.
+ */
+export function deriveProviderHealthTransition(
+  previousStatus: ProviderHealthStatus | null,
+  nextStatus: ProviderHealthStatus,
+): ProviderHealthTransition | null {
+  if (previousStatus === nextStatus) {
+    return null;
+  }
+
+  return {
+    nextStatus,
+    previousStatus,
+  };
+}
+
+/**
+ * Summarizes the rolling provider-health window used by the failover state
+ * machine.
+ *
+ * Parameters:
+ * - observations: Recent observations ordered newest-first or unsorted.
+ *
+ * Returns:
+ * - Counts and rates for failures, timeouts, rate limits, and latency.
+ */
+export function summarizeProviderHealthWindow(
+  observations: ProviderHealthObservation[],
+): ProviderHealthWindowSnapshot {
+  const orderedObservations = [...observations].sort(
+    (left, right) => right.checkedAt.getTime() - left.checkedAt.getTime(),
+  );
+  const observationCount = orderedObservations.length;
+  const errorCount = orderedObservations.filter(
+    (observation) => !observation.ok,
+  ).length;
+  const timeoutCount = orderedObservations.filter(
+    (observation) => observation.timedOut,
+  ).length;
+  const rateLimitCount = orderedObservations.filter(
+    (observation) => observation.rateLimited,
+  ).length;
+  const highLatencyCount = orderedObservations.filter(
+    (observation) =>
+      observation.ok &&
+      observation.latencyMs !== null &&
+      observation.latencyMs >= HIGH_LATENCY_THRESHOLD_MS,
+  ).length;
+
+  return {
+    consecutiveFailures: countLeadingObservations(
+      orderedObservations,
+      (observation) => !observation.ok,
+    ),
+    consecutiveSuccesses: countLeadingObservations(
+      orderedObservations,
+      (observation) => observation.ok,
+    ),
+    errorCount,
+    errorRate: divideSafely(errorCount, observationCount),
+    highLatencyCount,
+    highLatencyRate: divideSafely(highLatencyCount, observationCount),
+    observationCount,
+    rateLimitCount,
+    rateLimitRate: divideSafely(rateLimitCount, observationCount),
+    timeoutCount,
+    timeoutRate: divideSafely(timeoutCount, observationCount),
+  };
 }
 
 /**
@@ -343,7 +489,6 @@ async function loadRecentProviderHealthRows(
       from provider_health_checks
       where provider = ${provider}
         and chain = ${chain}
-        and checked_at >= now() - interval '2 minutes'
       order by checked_at desc
       limit 20
     `;
@@ -412,8 +557,7 @@ function mapStoredRowToObservation(provider: RpcProviderName) {
     ok: row.error === null,
     provider,
     rateLimited:
-      row.status === "rate_limited" ||
-      isRateLimitedErrorMessage(row.error),
+      row.status === "rate_limited" || isRateLimitedErrorMessage(row.error),
     status: row.status,
     timedOut: isTimeoutErrorMessage(row.error),
   });
@@ -534,6 +678,24 @@ function parsePositiveIntegerEnv(
 }
 
 /**
+ * Divides two numbers while treating an empty observation set as zero.
+ *
+ * Parameters:
+ * - numerator: Count for the metric of interest.
+ * - denominator: Total observations in the rolling window.
+ *
+ * Returns:
+ * - Decimal rate in the inclusive range `[0, 1]`.
+ */
+function divideSafely(numerator: number, denominator: number): number {
+  if (denominator === 0) {
+    return 0;
+  }
+
+  return numerator / denominator;
+}
+
+/**
  * Detects whether a provider error looks like rate limiting.
  *
  * Parameters:
@@ -575,19 +737,27 @@ function isTimeoutErrorMessage(message: string | null): boolean {
  * - status: Computed health status.
  * - error: Sanitized error message, if any.
  */
-function logProviderHealthEvent(
-  provider: RpcProviderName,
-  status: ProviderHealthStatus,
-  error: string | null,
-): void {
+function logProviderHealthEvent(input: {
+  error: string | null;
+  provider: RpcProviderName;
+  rollingWindow: ProviderHealthWindowSnapshot;
+  status: ProviderHealthStatus;
+  transition: ProviderHealthTransition | null;
+}): void {
   console.error(
     JSON.stringify({
       chain: BASE_CHAIN,
-      error,
+      error: input.error,
+      errorRate: input.rollingWindow.errorRate,
+      highLatencyRate: input.rollingWindow.highLatencyRate,
       module: "provider-health",
-      provider,
-      status,
+      provider: input.provider,
+      rateLimitRate: input.rollingWindow.rateLimitRate,
+      status: input.status,
       timestamp: new Date().toISOString(),
+      timeoutRate: input.rollingWindow.timeoutRate,
+      transitionFrom: input.transition?.previousStatus ?? null,
+      transitionTo: input.transition?.nextStatus ?? null,
     }),
   );
 }

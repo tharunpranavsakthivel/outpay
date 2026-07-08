@@ -15,11 +15,30 @@ process.env.CHAINSTACK_BASE_RPC_URL =
   process.env.CHAINSTACK_BASE_RPC_URL ||
   "https://base-mainnet.core.chainstack.com/test";
 
-const { deriveProviderHealthStatus } = await import(
-  "@/lib/providers/health"
-);
+const { deriveProviderHealthStatus } = await import("@/lib/providers/health");
 
 describe("provider health state machine", () => {
+  it("does not degrade a healthy provider on a single failed probe", () => {
+    const checkedAt = new Date("2026-07-08T12:00:00.000Z");
+
+    expect(
+      deriveProviderHealthStatus({
+        currentObservation: {
+          checkedAt,
+          error: "temporary upstream error",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: null,
+          timedOut: false,
+        },
+        previousStatus: "healthy",
+        recentObservations: [],
+      }),
+    ).toBe("healthy");
+  });
+
   it("marks providers as rate_limited on rate-limit failures", () => {
     const checkedAt = new Date("2026-07-08T12:00:00.000Z");
 
@@ -183,5 +202,153 @@ describe("provider health state machine", () => {
         })),
       }),
     ).toBe("healthy");
+  });
+
+  it("drives the documented healthy to degraded to down to recovering to healthy flow", () => {
+    const degradedAt = new Date("2026-07-08T12:04:00.000Z");
+    const degradedStatus = deriveProviderHealthStatus({
+      currentObservation: {
+        checkedAt: degradedAt,
+        error: "upstream error",
+        latencyMs: null,
+        ok: false,
+        provider: "alchemy",
+        rateLimited: false,
+        status: null,
+        timedOut: false,
+      },
+      previousStatus: "healthy",
+      recentObservations: Array.from({ length: 5 }, (_, index) => ({
+        checkedAt: new Date(degradedAt.getTime() - (index + 1) * 15_000),
+        error: "upstream error",
+        latencyMs: null,
+        ok: false,
+        provider: "alchemy" as const,
+        rateLimited: false,
+        status: "healthy" as const,
+        timedOut: false,
+      })),
+    });
+    const downAt = new Date("2026-07-08T12:04:30.000Z");
+    const downStatus = deriveProviderHealthStatus({
+      currentObservation: {
+        checkedAt: downAt,
+        error: "request timeout",
+        latencyMs: null,
+        ok: false,
+        provider: "alchemy",
+        rateLimited: false,
+        status: null,
+        timedOut: true,
+      },
+      previousStatus: degradedStatus,
+      recentObservations: [
+        {
+          checkedAt: new Date(downAt.getTime() - 10_000),
+          error: "request timeout",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: degradedStatus,
+          timedOut: true,
+        },
+        {
+          checkedAt: new Date(downAt.getTime() - 20_000),
+          error: "request timeout",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: degradedStatus,
+          timedOut: true,
+        },
+        {
+          checkedAt: new Date(downAt.getTime() - 30_000),
+          error: "upstream error",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: degradedStatus,
+          timedOut: false,
+        },
+        {
+          checkedAt: new Date(downAt.getTime() - 40_000),
+          error: "upstream error",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: degradedStatus,
+          timedOut: false,
+        },
+        {
+          checkedAt: new Date(downAt.getTime() - 50_000),
+          error: "upstream error",
+          latencyMs: null,
+          ok: false,
+          provider: "alchemy",
+          rateLimited: false,
+          status: degradedStatus,
+          timedOut: false,
+        },
+      ],
+    });
+    const recoveringAt = new Date("2026-07-08T12:05:00.000Z");
+    const recoveringStatus = deriveProviderHealthStatus({
+      currentObservation: {
+        checkedAt: recoveringAt,
+        error: null,
+        latencyMs: 220,
+        ok: true,
+        provider: "alchemy",
+        rateLimited: false,
+        status: null,
+        timedOut: false,
+      },
+      previousStatus: downStatus,
+      recentObservations: [
+        {
+          checkedAt: new Date(recoveringAt.getTime() - 10_000),
+          error: null,
+          latencyMs: 240,
+          ok: true,
+          provider: "alchemy",
+          rateLimited: false,
+          status: "recovering",
+          timedOut: false,
+        },
+      ],
+    });
+    const healthyAt = new Date("2026-07-08T12:06:00.000Z");
+    const healthyStatus = deriveProviderHealthStatus({
+      currentObservation: {
+        checkedAt: healthyAt,
+        error: null,
+        latencyMs: 210,
+        ok: true,
+        provider: "alchemy",
+        rateLimited: false,
+        status: null,
+        timedOut: false,
+      },
+      previousStatus: recoveringStatus,
+      recentObservations: Array.from({ length: 4 }, (_, index) => ({
+        checkedAt: new Date(healthyAt.getTime() - (index + 1) * 10_000),
+        error: null,
+        latencyMs: 230,
+        ok: true,
+        provider: "alchemy" as const,
+        rateLimited: false,
+        status: "recovering" as const,
+        timedOut: false,
+      })),
+    });
+
+    expect(degradedStatus).toBe("degraded");
+    expect(downStatus).toBe("down");
+    expect(recoveringStatus).toBe("recovering");
+    expect(healthyStatus).toBe("healthy");
   });
 });

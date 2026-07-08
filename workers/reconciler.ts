@@ -98,6 +98,7 @@ export interface ReconcilerDependencies {
   recheckPayment: (input: {
     checkoutSessionId: string;
   }) => Promise<MatchChainEventResult>;
+  resolveProviderScanOrder?: () => Promise<RpcProviderName[]>;
   reserveRawEvent: (input: {
     cursorType: CursorType;
     event: NormalizedChainEvent;
@@ -280,8 +281,11 @@ async function runScanCycle(input: {
   windowSize: bigint;
 }): Promise<ReconciliationCycleSummary> {
   const providers: ReconciliationCycleSummary["providers"] = [];
+  const providerOrder = await resolveReconciliationProviderOrder(
+    input.dependencies,
+  );
 
-  for (const provider of ["alchemy", "chainstack"] as const) {
+  for (const provider of providerOrder) {
     providers.push(
       await scanProviderWindow({
         cursorType: input.cursorType,
@@ -304,6 +308,41 @@ async function runScanCycle(input: {
     latestBlock: input.latestBlock,
     providers,
   };
+}
+
+/**
+ * Resolves the provider scan order for reconciliation. When Alchemy is
+ * degraded, down, or rate-limited, Chainstack is scanned first so recovery
+ * work continues against the healthier upstream.
+ *
+ * Parameters:
+ * - dependencies: Reconciler dependencies with optional custom order
+ *   resolution.
+ *
+ * Returns:
+ * - Ordered provider list for the upcoming scan cycle.
+ */
+export async function resolveReconciliationProviderOrder(
+  dependencies: ReconcilerDependencies,
+): Promise<RpcProviderName[]> {
+  if (dependencies.resolveProviderScanOrder) {
+    return dependencies.resolveProviderScanOrder();
+  }
+
+  const alchemyStatus = await getLatestProviderHealthStatus(
+    "alchemy",
+    BASE_CHAIN,
+  );
+
+  if (
+    alchemyStatus === "degraded" ||
+    alchemyStatus === "down" ||
+    alchemyStatus === "rate_limited"
+  ) {
+    return ["chainstack", "alchemy"];
+  }
+
+  return ["alchemy", "chainstack"];
 }
 
 async function scanProviderWindow(input: {

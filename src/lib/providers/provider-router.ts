@@ -18,9 +18,9 @@ export interface ProviderRouterDependencies {
   logEvent: (event: ProviderRouterLogEvent) => void;
   primaryProvider: RpcProviderName;
   providers: Record<RpcProviderName, RpcRequestFunction>;
-  resolvePrimaryState: (provider: RpcProviderName) => Promise<
-    ProviderHealthStatus | null
-  >;
+  resolvePrimaryState: (
+    provider: RpcProviderName,
+  ) => Promise<ProviderHealthStatus | null>;
   secondaryProvider: RpcProviderName;
 }
 
@@ -73,7 +73,10 @@ const DEFAULT_PROVIDER_ROUTER = createProviderRouter({
     alchemy: alchemyRpcRequest,
     chainstack: chainstackRpcRequest,
   },
-  resolvePrimaryState: async () => null,
+  resolvePrimaryState: async (provider) => {
+    const { getLatestProviderHealthStatus } = await import("./health");
+    return getLatestProviderHealthStatus(provider);
+  },
   secondaryProvider: SECONDARY_PROVIDER,
 });
 
@@ -215,7 +218,7 @@ async function resolveProviderOrder(
   input: ProviderRouterDependencies,
   options?: ProviderRouterCallOptions,
 ): Promise<[RpcProviderName, RpcProviderName?]> {
-  if (!options?.preferSecondaryOnDegradedPrimary) {
+  if (options?.preferSecondaryOnDegradedPrimary === false) {
     return [input.primaryProvider, input.secondaryProvider];
   }
 
@@ -250,9 +253,7 @@ function parseProviderName(
     return value;
   }
 
-  throw new Error(
-    `${variableName} must be either "alchemy" or "chainstack".`,
-  );
+  throw new Error(`${variableName} must be either "alchemy" or "chainstack".`);
 }
 
 /**

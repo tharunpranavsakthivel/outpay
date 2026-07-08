@@ -19,8 +19,7 @@ process.env.RPC_PRIMARY_PROVIDER =
   process.env.RPC_PRIMARY_PROVIDER || "alchemy";
 process.env.RPC_SECONDARY_PROVIDER =
   process.env.RPC_SECONDARY_PROVIDER || "chainstack";
-process.env.RPC_FAILOVER_ENABLED =
-  process.env.RPC_FAILOVER_ENABLED || "true";
+process.env.RPC_FAILOVER_ENABLED = process.env.RPC_FAILOVER_ENABLED || "true";
 
 const { ProviderRouterError, createProviderRouter } = await import(
   "@/lib/providers/provider-router"
@@ -105,6 +104,28 @@ describe("ProviderRouter", () => {
     const result = await router.callRpc<string>("eth_chainId", [], {
       preferSecondaryOnDegradedPrimary: true,
     });
+
+    expect(result).toBe("0x2");
+    expect(secondary).toHaveBeenCalledTimes(1);
+    expect(primary).toHaveBeenCalledTimes(0);
+  });
+
+  it("prefers the secondary first by default when the primary is degraded", async () => {
+    const primary = mock(async () => "0x1");
+    const secondary = mock(async () => "0x2");
+    const router = createProviderRouter({
+      failoverEnabled: true,
+      logEvent: () => undefined,
+      primaryProvider: "alchemy",
+      providers: {
+        alchemy: primary,
+        chainstack: secondary,
+      },
+      resolvePrimaryState: async () => "down",
+      secondaryProvider: "chainstack",
+    });
+
+    const result = await router.callRpc<string>("eth_chainId", []);
 
     expect(result).toBe("0x2");
     expect(secondary).toHaveBeenCalledTimes(1);
