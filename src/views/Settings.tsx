@@ -322,8 +322,9 @@ export default function Settings({
             <CardHeader>
               <CardTitle>Webhook endpoint</CardTitle>
               <CardDescription>
-                Signed `checkout.paid` events are delivered using the
-                `webhook_endpoints` configuration.
+                Signed `checkout.paid` events are delivered from the
+                `webhook_endpoints` configuration using an encrypted-at-rest
+                signing secret.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 border-b-0">

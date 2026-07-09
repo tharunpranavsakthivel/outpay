@@ -11,6 +11,7 @@
     "worker:payments": "bun workers/payment-listener.ts",
     "worker:provider-health": "bun workers/provider-health.ts",
     "worker:reconciler": "bun workers/reconciler.ts",
+    "worker:webhooks": "bun workers/webhook-dispatcher.ts",
     "db:clear": "bun scripts/db/clear.ts",
     "db:migrate": "bun scripts/db/migrate.ts up",
     "db:migrate:down": "bun scripts/db/migrate.ts down",

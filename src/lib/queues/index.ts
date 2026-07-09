@@ -15,13 +15,14 @@ import {
   type Worker,
 } from "bullmq";
 import type { NormalizedChainEvent } from "@/lib/payments/normalize-event";
+import {
+  getWebhookRetryDelayMsAfterFailure,
+  WEBHOOK_DELIVERY_MAX_ATTEMPTS,
+} from "@/lib/webhooks/retry";
 import { getSharedRedisConnection } from "./redis";
 
 const COMPLETED_JOB_RETENTION = { count: 1000 } as const;
 const FAILED_JOB_RETENTION = { count: 5000 } as const;
-const MERCHANT_WEBHOOK_BACKOFF_DELAYS_MS = [
-  30_000, 120_000, 600_000, 1_800_000, 7_200_000, 43_200_000,
-] as const;
 const DEFAULT_QUEUE_PREFIX = "bull";
 
 export const QUEUE_NAMES = {
@@ -146,7 +147,7 @@ const queueDefaultJobOptions: Record<QueueName, JobsOptions> = {
     removeOnFail: false,
   },
   [QUEUE_NAMES.merchantWebhooks]: {
-    attempts: 7,
+    attempts: WEBHOOK_DELIVERY_MAX_ATTEMPTS,
     backoff: {
       type: MERCHANT_WEBHOOK_BACKOFF_STRATEGY_NAME,
     },
@@ -193,7 +194,7 @@ export function resolveQueueBackoffDelay(
     return undefined;
   }
 
-  return MERCHANT_WEBHOOK_BACKOFF_DELAYS_MS[attemptsMade - 1] ?? 0;
+  return getWebhookRetryDelayMsAfterFailure(attemptsMade) ?? 0;
 }
 
 /**

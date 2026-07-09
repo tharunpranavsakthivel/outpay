@@ -46,12 +46,21 @@ const DOC_LINKS = [
   },
 ];
 
-const CODE_BLOCK_CREATE = `POST /api/checkouts
+const CODE_BLOCK_CREATE = `POST /api/v1/checkouts
+Authorization: Bearer ck_test_<prefix>_<secret>
+Idempotency-Key: order_4471
+Content-Type: application/json
+
 {
-  "label": "Order #4471",
-  "amountUsd": "124.00",
-  "orderReference": "Order #4471",
-  "redirectUrl": "https://merchant.example/thanks"
+  "amount": "124.00",
+  "currency": "USDC",
+  "chain": "base",
+  "successUrl": "https://merchant.example/thanks",
+  "cancelUrl": "https://merchant.example/cart",
+  "customerEmail": "buyer@example.com",
+  "metadata": {
+    "orderId": "Order #4471"
+  }
 }`;
 
 const CODE_BLOCK_CLASS =
@@ -212,6 +221,46 @@ export default function Developers({
       setDeliveries(deliveriesPayload.webhookDeliveries);
       setSaveMessage("Test webhook queued.");
       toast.success("Test webhook queued.");
+    });
+  };
+
+  const retryDelivery = (deliveryId: string) => {
+    startTransition(async () => {
+      setErrorMessage(null);
+      setSaveMessage(null);
+
+      const response = await fetch(
+        `/api/developers/webhook-deliveries/${deliveryId}/retry`,
+        {
+          method: "POST",
+        },
+      );
+      const payload = (await response.json()) as
+        | { error?: { message?: string } }
+        | Record<string, unknown>;
+      const retryError = (payload as { error?: { message?: string } }).error
+        ?.message;
+
+      if (!response.ok || "error" in payload) {
+        const message = retryError ?? "Unable to retry webhook delivery.";
+        setErrorMessage(message);
+        toast.error(message);
+        return;
+      }
+
+      const deliveriesResponse = await fetch(
+        "/api/developers/webhook-deliveries",
+        {
+          cache: "no-store",
+        },
+      );
+      const deliveriesPayload = (await deliveriesResponse.json()) as {
+        webhookDeliveries: WebhookDeliveryItem[];
+      };
+
+      setDeliveries(deliveriesPayload.webhookDeliveries);
+      setSaveMessage("Webhook delivery requeued.");
+      toast.success("Webhook delivery requeued.");
     });
   };
 
@@ -399,8 +448,8 @@ export default function Developers({
                 <CardHeader>
                   <CardTitle>Webhook endpoint</CardTitle>
                   <CardDescription>
-                    The endpoint row stores URL, secret prefix, and hashed
-                    signing secret.
+                    The endpoint row stores URL, secret prefix, secret hash, and
+                    encrypted signing secret for real outbound delivery.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4 border-b-0">
@@ -459,6 +508,7 @@ export default function Developers({
                         <TableHead>Delivery</TableHead>
                         <TableHead>Outcome</TableHead>
                         <TableHead>HTTP</TableHead>
+                        <TableHead>Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -488,6 +538,22 @@ export default function Developers({
                           </TableCell>
                           <TableCell className="font-mono text-xs text-foreground-light">
                             {delivery.responseStatusCode ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            {delivery.canRetry ? (
+                              <Button
+                                variant="outline"
+                                size="small"
+                                disabled={isPending}
+                                onClick={() => retryDelivery(delivery.id)}
+                              >
+                                Retry
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-foreground-lighter">
+                                —
+                              </span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

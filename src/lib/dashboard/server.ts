@@ -18,6 +18,8 @@ import {
   uploadObject,
 } from "@/lib/storage/tigris";
 import { verifyWalletOwnershipSignature } from "@/lib/wallet/verify-signature";
+import { encryptWebhookSigningSecret } from "@/lib/webhooks/secrets";
+import { validateMerchantWebhookUrl } from "@/lib/webhooks/url";
 import {
   calculateCheckoutExpiryFromNow,
   getCheckoutExpiryPolicy,
@@ -75,10 +77,84 @@ interface MerchantContext {
 interface MerchantWalletContext {
   address: string;
   blockchainName: string;
+  chainSlug: string;
   chainNumericId: number;
+  tokenContract: string;
   tokenId: string;
   tokenSymbol: string;
   walletId: string;
+}
+
+export interface CreateCheckoutForMerchantInput {
+  actorType: "api_key" | "user";
+  amount: string;
+  cancelUrl?: string | null;
+  createdByUserId?: string | null;
+  createdViaApiKeyId?: string | null;
+  customerEmail?: string | null;
+  idempotencyKey?: string | null;
+  label: string;
+  merchantId: string;
+  metadata?: Record<string, unknown>;
+  orderReference?: string | null;
+  redirectUrl?: string | null;
+  source: "api" | "dashboard" | "integration";
+  successUrl?: string | null;
+}
+
+export interface MerchantCheckoutRecord {
+  amount: string;
+  chain: string;
+  checkoutRef: string;
+  checkoutSessionId: string;
+  checkoutUrlPath: string;
+  currency: string;
+  expiresAt: string;
+  paymentUrlPath: string;
+  publicToken: string;
+  recipient: {
+    address: string;
+    tokenContract: string;
+  };
+  status: string;
+}
+
+export interface MerchantCheckoutPaymentRecord {
+  amount: string;
+  confirmedAt: string | null;
+  fromAddress: string;
+  id: string;
+  status: string;
+  toAddress: string;
+  txHash: string | null;
+}
+
+export interface MerchantCheckoutStatusRecord extends MerchantCheckoutRecord {
+  cancelUrl: string | null;
+  customerEmail: string | null;
+  metadata: Record<string, unknown>;
+  successUrl: string | null;
+  payment: MerchantCheckoutPaymentRecord | null;
+}
+
+export interface ListMerchantPaymentsInput {
+  limit?: number;
+  merchantId: string;
+  status?: string | null;
+}
+
+export interface MerchantPaymentRecord {
+  amount: string;
+  chain: string;
+  checkoutId: string;
+  confirmedAt: string | null;
+  createdAt: string;
+  currency: string;
+  fromAddress: string;
+  id: string;
+  status: string;
+  toAddress: string;
+  txHash: string | null;
 }
 
 export class MissingMerchantContextError extends Error {
@@ -707,7 +783,9 @@ async function getPrimaryWalletContext(
       {
         address: string;
         blockchain_name: string;
+        chain_slug: string;
         chain_numeric_id: number;
+        token_contract: string;
         token_id: string;
         token_symbol: string;
         wallet_id: string;
@@ -717,7 +795,9 @@ async function getPrimaryWalletContext(
         wa.id as wallet_id,
         wa.address,
         b.display_name as blockchain_name,
+        b.slug::text as chain_slug,
         b.chain_numeric_id,
+        t.contract_address as token_contract,
         t.id as token_id,
         t.symbol::text as token_symbol
       from wallet_addresses wa
@@ -739,7 +819,9 @@ async function getPrimaryWalletContext(
       ? {
           address: rows[0].address,
           blockchainName: rows[0].blockchain_name,
+          chainSlug: rows[0].chain_slug,
           chainNumericId: rows[0].chain_numeric_id,
+          tokenContract: rows[0].token_contract,
           tokenId: rows[0].token_id,
           tokenSymbol: rows[0].token_symbol,
           walletId: rows[0].wallet_id,
@@ -1168,6 +1250,45 @@ function normalizePositiveAmount(value: string) {
   return Number(numericValue.toFixed(2));
 }
 
+function isValidCustomerEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value);
+}
+
+function normalizeCheckoutMetadata(value: Record<string, unknown> | undefined) {
+  if (!value) {
+    return {};
+  }
+
+  const normalized = JSON.parse(JSON.stringify(value)) as unknown;
+
+  if (
+    typeof normalized !== "object" ||
+    normalized === null ||
+    Array.isArray(normalized)
+  ) {
+    throw new Error("Metadata must be a JSON object.");
+  }
+
+  return normalized as Record<string, unknown>;
+}
+
+function validateAbsoluteCheckoutUrl(
+  value: string | null | undefined,
+  fieldLabel: string,
+) {
+  const trimmedValue = value?.trim() ?? "";
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  if (!URL.canParse(trimmedValue)) {
+    throw new Error(`${fieldLabel} must be a valid absolute URL.`);
+  }
+
+  return trimmedValue;
+}
+
 function hashSecret(secret: string) {
   return createHash("sha256").update(secret).digest("hex");
 }
@@ -1178,6 +1299,22 @@ function createCheckoutRef() {
 
 function createPublicToken() {
   return randomBytes(10).toString("hex");
+}
+
+function mapCheckoutStatusForApi(status: string) {
+  if (status === "pending") {
+    return "pending_payment";
+  }
+
+  if (status === "detected") {
+    return "payment_detected";
+  }
+
+  if (status === "deactivated") {
+    return "cancelled";
+  }
+
+  return status;
 }
 
 /**
@@ -1308,13 +1445,14 @@ async function reconcileCheckoutExpiry(
 }
 
 function createApiSecret(environment: "test" | "live") {
-  const prefix = environment === "test" ? "outpay_test_" : "outpay_live_";
-  const raw = `${prefix}${randomBytes(24).toString("hex")}`;
+  const keyPrefix = `ck_${environment}_${randomBytes(4).toString("hex")}`;
+  const secret = randomBytes(24).toString("hex");
+  const raw = `${keyPrefix}_${secret}`;
 
   return {
-    hash: hashSecret(raw),
-    keyPrefix: raw.slice(0, 14),
-    lastFour: raw.slice(-4),
+    hash: hashSecret(secret),
+    keyPrefix,
+    lastFour: secret.slice(-4),
     raw,
   };
 }
@@ -1333,11 +1471,10 @@ function createWebhookSecret() {
  * Inserts a new dashboard checkout backed by checkout_sessions,
  * payment_intents, and checkout_status_history.
  */
-export async function createDashboardCheckout(
-  input: CreateCheckoutFormData,
-): Promise<CreateCheckoutResult> {
-  const context = await getMerchantContext();
-  const wallet = await getPrimaryWalletContext(context.merchant.merchantId);
+export async function createCheckoutForMerchant(
+  input: CreateCheckoutForMerchantInput,
+): Promise<MerchantCheckoutRecord> {
+  const wallet = await getPrimaryWalletContext(input.merchantId);
   const expiryPolicy = getCheckoutExpiryPolicy();
 
   if (!wallet) {
@@ -1346,17 +1483,27 @@ export async function createDashboardCheckout(
     );
   }
 
-  const amountUsd = normalizePositiveAmount(input.amountUsd);
+  const amountUsd = normalizePositiveAmount(input.amount);
   const label = input.label.trim();
-  const orderReference = input.orderReference.trim();
-  const redirectUrl = input.redirectUrl.trim();
+  const orderReference = input.orderReference?.trim() ?? "";
+  const redirectUrl = validateAbsoluteCheckoutUrl(
+    input.redirectUrl,
+    "Redirect URL",
+  );
+  const successUrl = validateAbsoluteCheckoutUrl(
+    input.successUrl,
+    "Success URL",
+  );
+  const cancelUrl = validateAbsoluteCheckoutUrl(input.cancelUrl, "Cancel URL");
+  const customerEmail = input.customerEmail?.trim() ?? "";
+  const metadata = normalizeCheckoutMetadata(input.metadata);
 
   if (!label) {
     throw new Error("A checkout label is required.");
   }
 
-  if (redirectUrl && !URL.canParse(redirectUrl)) {
-    throw new Error("Redirect URL must be a valid absolute URL.");
+  if (customerEmail && !isValidCustomerEmail(customerEmail)) {
+    throw new Error("Customer email must be a valid email address.");
   }
 
   const database = await connectToDatabase();
@@ -1365,11 +1512,12 @@ export async function createDashboardCheckout(
   const expiresAt = calculateCheckoutExpiryFromNow(new Date(), expiryPolicy);
 
   try {
-    await database.sql.begin(async (sql) => {
-      const [checkout] = await sql<
+    const [checkout] = await database.sql.begin(async (sql) => {
+      const rows = await sql<
         {
           amount_token: string;
           checkout_ref: string;
+          id: string;
           public_token: string;
         }[]
       >`
@@ -1387,12 +1535,17 @@ export async function createDashboardCheckout(
           status,
           redirect_url,
           success_url,
+          cancel_url,
+          customer_email,
           source,
-          created_by_user_id
+          metadata,
+          created_by_user_id,
+          created_via_api_key_id,
+          idempotency_key
         ) values (
           ${checkoutRef},
           ${publicToken},
-          ${context.merchant.merchantId},
+          ${input.merchantId},
           ${wallet.tokenId},
           ${wallet.walletId},
           ${label},
@@ -1401,13 +1554,24 @@ export async function createDashboardCheckout(
           ${amountUsd},
           ${expiresAt.toISOString()},
           'pending',
-          ${redirectUrl || null},
-          ${redirectUrl || null},
-          'dashboard',
-          ${context.userId}
+          ${redirectUrl ?? successUrl},
+          ${successUrl},
+          ${cancelUrl},
+          ${customerEmail || null},
+          ${input.source},
+          ${JSON.stringify(metadata)}::jsonb,
+          ${input.createdByUserId ?? null},
+          ${input.createdViaApiKeyId ?? null},
+          ${input.idempotencyKey ?? null}
         )
-        returning checkout_ref, public_token, amount_token::text
+        returning
+          id::text as id,
+          checkout_ref,
+          public_token,
+          amount_token::text
       `;
+
+      const createdCheckout = rows[0];
 
       await sql`
         insert into payment_intents (
@@ -1418,17 +1582,15 @@ export async function createDashboardCheckout(
           expected_amount_token,
           expires_at,
           required_confirmations
-        )
-        select
-          id,
-          merchant_id,
-          token_id,
-          recipient_wallet_id,
-          amount_token,
-          expires_at,
+        ) values (
+          ${createdCheckout.id},
+          ${input.merchantId},
+          ${wallet.tokenId},
+          ${wallet.walletId},
+          ${createdCheckout.amount_token},
+          ${expiresAt.toISOString()},
           1
-        from checkout_sessions
-        where checkout_ref = ${checkout.checkout_ref}
+        )
       `;
 
       await sql`
@@ -1439,47 +1601,87 @@ export async function createDashboardCheckout(
           actor_type,
           actor_user_id,
           message
-        )
-        select
-          id,
+        ) values (
+          ${createdCheckout.id},
           'pending',
           'created',
-          'user',
-          ${context.userId},
-          ${`Checkout ${checkout.checkout_ref} created from the merchant dashboard.`}
-        from checkout_sessions
-        where checkout_ref = ${checkout.checkout_ref}
+          ${input.actorType},
+          ${input.createdByUserId ?? null},
+          ${
+            input.actorType === "api_key"
+              ? `Checkout ${checkoutRef} created through the public API.`
+              : `Checkout ${checkoutRef} created from the merchant dashboard.`
+          }
+        )
       `;
 
-      await sql`
-        insert into merchant_onboarding (
-          merchant_id,
-          primary_user_id,
-          first_checkout_created_at
-        ) values (
-          ${context.merchant.merchantId},
-          ${context.userId},
-          now()
-        )
-        on conflict (merchant_id) do update
-          set first_checkout_created_at = coalesce(
-                merchant_onboarding.first_checkout_created_at,
-                excluded.first_checkout_created_at
-              ),
-              updated_at = now()
-      `;
+      if (input.actorType === "user" && input.createdByUserId) {
+        await sql`
+          insert into merchant_onboarding (
+            merchant_id,
+            primary_user_id,
+            first_checkout_created_at
+          ) values (
+            ${input.merchantId},
+            ${input.createdByUserId},
+            now()
+          )
+          on conflict (merchant_id) do update
+            set first_checkout_created_at = coalesce(
+                  merchant_onboarding.first_checkout_created_at,
+                  excluded.first_checkout_created_at
+                ),
+                updated_at = now()
+        `;
+      }
+
+      return rows;
     });
 
     return {
-      amountLabel: formatTokenAmount(amountUsd, wallet.tokenSymbol),
+      amount: Number(amountUsd).toFixed(2),
+      chain: wallet.chainSlug,
       checkoutRef,
-      checkoutUrl: `/checkout/${publicToken}`,
+      checkoutSessionId: checkout.id,
+      checkoutUrlPath: `/checkout/${publicToken}`,
+      currency: wallet.tokenSymbol,
+      expiresAt: expiresAt.toISOString(),
+      paymentUrlPath: `/checkout/${publicToken}`,
       publicToken,
-      receiptUrl: `/receipt/${checkoutRef}`,
+      recipient: {
+        address: wallet.address,
+        tokenContract: wallet.tokenContract,
+      },
+      status: mapCheckoutStatusForApi("pending"),
     };
   } finally {
     await database.release();
   }
+}
+
+export async function createDashboardCheckout(
+  input: CreateCheckoutFormData,
+): Promise<CreateCheckoutResult> {
+  const context = await getMerchantContext();
+  const checkout = await createCheckoutForMerchant({
+    actorType: "user",
+    amount: input.amountUsd,
+    createdByUserId: context.userId,
+    label: input.label,
+    merchantId: context.merchant.merchantId,
+    orderReference: input.orderReference,
+    redirectUrl: input.redirectUrl,
+    source: "dashboard",
+    successUrl: input.redirectUrl,
+  });
+
+  return {
+    amountLabel: formatTokenAmount(checkout.amount, checkout.currency),
+    checkoutRef: checkout.checkoutRef,
+    checkoutUrl: checkout.checkoutUrlPath,
+    publicToken: checkout.publicToken,
+    receiptUrl: `/receipt/${checkout.checkoutRef}`,
+  };
 }
 
 /**
@@ -1689,6 +1891,220 @@ export async function getPaymentsPageData(
       totalCount,
       totalPages: Math.max(1, Math.ceil(totalCount / CHECKOUT_PAGE_SIZE)),
     };
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Resolves a single merchant-scoped checkout for the public REST API.
+ *
+ * Parameters:
+ * - merchantId: Merchant primary key resolved from API key authentication.
+ * - id: Merchant-facing checkout ref or hosted checkout token.
+ *
+ * Returns:
+ * - Public API checkout payload with optional payment settlement data.
+ */
+export async function getMerchantCheckoutStatus(
+  merchantId: string,
+  id: string,
+): Promise<MerchantCheckoutStatusRecord | null> {
+  const database = await connectToDatabase();
+
+  try {
+    const rows = await database.sql.begin(async (sql) => {
+      await reconcileCheckoutExpiry(sql, {
+        lookupId: id,
+        merchantId,
+      });
+
+      return sql<
+        {
+          amount_usd: string;
+          cancel_url: string | null;
+          chain_slug: string;
+          checkout_id: string;
+          checkout_ref: string;
+          expires_at: string | null;
+          confirmed_at: string | null;
+          customer_email: string | null;
+          from_address: string | null;
+          metadata: Record<string, unknown>;
+          payment_amount: string | null;
+          payment_ref: string | null;
+          payment_recipient_address: string | null;
+          payment_status: string | null;
+          public_token: string;
+          recipient_address: string;
+          success_url: string | null;
+          status: string;
+          token_contract: string;
+          token_symbol: string;
+          tx_hash: string | null;
+        }[]
+      >`
+        select
+          cs.id::text as checkout_id,
+          cs.checkout_ref,
+          cs.public_token,
+          cs.amount_usd::text as amount_usd,
+          cs.status::text as status,
+          cs.success_url,
+          cs.cancel_url,
+          cs.customer_email,
+          cs.metadata,
+          cs.expires_at::text as expires_at,
+          wa.address as recipient_address,
+          t.contract_address as token_contract,
+          t.symbol::text as token_symbol,
+          b.slug::text as chain_slug,
+          p.payment_ref,
+          p.amount_usd::text as payment_amount,
+          p.status::text as payment_status,
+          p.confirmed_at::text as confirmed_at,
+          p.sender_address as from_address,
+          p.recipient_address as payment_recipient_address,
+          ot.tx_hash
+        from checkout_sessions cs
+        join wallet_addresses wa
+          on wa.id = cs.recipient_wallet_id
+        join tokens t
+          on t.id = cs.token_id
+        join blockchains b
+          on b.id = t.chain_id
+        left join payments p
+          on p.checkout_session_id = cs.id
+        left join onchain_transactions ot
+          on ot.id = p.onchain_transaction_id
+        where cs.merchant_id = ${merchantId}
+          and (
+            cs.checkout_ref = ${id}
+            or cs.public_token = ${id}
+          )
+        limit 1
+      `;
+    });
+
+    const checkout = rows[0];
+
+    if (!checkout) {
+      return null;
+    }
+
+    return {
+      amount: Number(checkout.amount_usd).toFixed(2),
+      cancelUrl: checkout.cancel_url,
+      chain: checkout.chain_slug,
+      checkoutRef: checkout.checkout_ref,
+      checkoutSessionId: checkout.checkout_id,
+      checkoutUrlPath: `/checkout/${checkout.public_token}`,
+      currency: checkout.token_symbol,
+      customerEmail: checkout.customer_email,
+      expiresAt: checkout.expires_at ?? new Date().toISOString(),
+      metadata: checkout.metadata ?? {},
+      payment: checkout.payment_ref
+        ? {
+            amount: Number(
+              checkout.payment_amount ?? checkout.amount_usd,
+            ).toFixed(2),
+            confirmedAt: checkout.confirmed_at,
+            fromAddress: checkout.from_address ?? "",
+            id: checkout.payment_ref,
+            status: checkout.payment_status ?? "pending",
+            toAddress:
+              checkout.payment_recipient_address ?? checkout.recipient_address,
+            txHash: checkout.tx_hash,
+          }
+        : null,
+      paymentUrlPath: `/checkout/${checkout.public_token}`,
+      publicToken: checkout.public_token,
+      recipient: {
+        address: checkout.recipient_address,
+        tokenContract: checkout.token_contract,
+      },
+      status: mapCheckoutStatusForApi(checkout.status),
+      successUrl: checkout.success_url,
+    };
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Lists merchant-scoped payments for the public REST API.
+ *
+ * Parameters:
+ * - input: Merchant scope and optional payment filters.
+ *
+ * Returns:
+ * - Deterministically ordered payments for the authenticated merchant.
+ */
+export async function listMerchantPayments(
+  input: ListMerchantPaymentsInput,
+): Promise<MerchantPaymentRecord[]> {
+  const database = await connectToDatabase();
+  const limit = Math.max(1, Math.min(input.limit ?? 25, 100));
+  const status = input.status?.trim() ?? "";
+
+  try {
+    const rows = await database.sql<
+      {
+        amount_usd: string;
+        chain_slug: string;
+        checkout_ref: string;
+        confirmed_at: string | null;
+        created_at: string;
+        from_address: string;
+        payment_ref: string;
+        recipient_address: string;
+        status: string;
+        token_symbol: string;
+        tx_hash: string | null;
+      }[]
+    >`
+      select
+        p.payment_ref,
+        cs.checkout_ref,
+        p.amount_usd::text as amount_usd,
+        p.status::text as status,
+        p.sender_address as from_address,
+        p.recipient_address,
+        p.created_at::text as created_at,
+        p.confirmed_at::text as confirmed_at,
+        t.symbol::text as token_symbol,
+        b.slug::text as chain_slug,
+        ot.tx_hash
+      from payments p
+      join checkout_sessions cs
+        on cs.id = p.checkout_session_id
+      join tokens t
+        on t.id = p.token_id
+      join blockchains b
+        on b.id = t.chain_id
+      left join onchain_transactions ot
+        on ot.id = p.onchain_transaction_id
+      where p.merchant_id = ${input.merchantId}
+        and (${status} = '' or p.status::text = ${status})
+      order by coalesce(p.confirmed_at, p.created_at) desc, p.created_at desc
+      limit ${limit}
+    `;
+
+    return rows.map(
+      (payment): MerchantPaymentRecord => ({
+        amount: Number(payment.amount_usd).toFixed(2),
+        chain: payment.chain_slug,
+        checkoutId: payment.checkout_ref,
+        confirmedAt: payment.confirmed_at,
+        createdAt: payment.created_at,
+        currency: payment.token_symbol,
+        fromAddress: payment.from_address,
+        id: payment.payment_ref,
+        status: payment.status,
+        toAddress: payment.recipient_address,
+        txHash: payment.tx_hash,
+      }),
+    );
   } finally {
     await database.release();
   }
@@ -1938,13 +2354,10 @@ export async function replacePrimaryWallet(input: {
 export async function upsertWebhookEndpoint(input: { url: string }) {
   const context = await getMerchantContext();
   const database = await connectToDatabase();
-  const url = input.url.trim();
-
-  if (!url || !URL.canParse(url)) {
-    throw new Error("Webhook URL must be a valid absolute URL.");
-  }
+  const url = await validateMerchantWebhookUrl(input.url);
 
   const secret = createWebhookSecret();
+  const encryptedSecret = encryptWebhookSigningSecret(secret.raw);
 
   try {
     const [endpoint] = await database.sql<
@@ -1959,24 +2372,30 @@ export async function upsertWebhookEndpoint(input: { url: string }) {
         environment,
         url,
         signing_secret_hash,
+        signing_secret_encrypted,
         signing_secret_prefix,
         status,
+        failure_count,
         created_by_user_id
       ) values (
         ${context.merchant.merchantId},
         'live',
         ${url},
         ${secret.hash},
+        ${encryptedSecret},
         ${secret.prefix},
         'active',
+        0,
         ${context.userId}
       )
       on conflict (merchant_id, environment) do update
         set
           url = excluded.url,
           signing_secret_hash = excluded.signing_secret_hash,
+          signing_secret_encrypted = excluded.signing_secret_encrypted,
           signing_secret_prefix = excluded.signing_secret_prefix,
           status = 'active',
+          failure_count = 0,
           updated_at = now()
       returning
         url,
@@ -2114,6 +2533,89 @@ export async function queueTestWebhookDelivery() {
     });
 
     return payload;
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Queues a manual retry for one failed webhook delivery attempt.
+ */
+export async function retryWebhookDelivery(input: {
+  deliveryAttemptId: string;
+}) {
+  if (!UUID_PATTERN.test(input.deliveryAttemptId)) {
+    throw new Error("Webhook delivery id must be a valid UUID.");
+  }
+
+  const context = await getMerchantContext();
+  const database = await connectToDatabase();
+
+  try {
+    const [delivery] = await database.sql<
+      {
+        delivery_status: string;
+        endpoint_status: string;
+        latest_attempt_number: number;
+        outcome: string;
+        webhook_event_id: string;
+      }[]
+    >`
+      select
+        wda.outcome::text as outcome,
+        we.delivery_status::text as delivery_status,
+        ep.status::text as endpoint_status,
+        wda.webhook_event_id::text as webhook_event_id,
+        (
+          select max(inner_wda.attempt_number)
+          from webhook_delivery_attempts inner_wda
+          where inner_wda.webhook_event_id = wda.webhook_event_id
+        )::integer as latest_attempt_number
+      from webhook_delivery_attempts wda
+      join webhook_events we
+        on we.id = wda.webhook_event_id
+      join webhook_endpoints ep
+        on ep.merchant_id = we.merchant_id
+       and ep.environment = 'live'
+      where wda.id = ${input.deliveryAttemptId}::uuid
+        and we.merchant_id = ${context.merchant.merchantId}::uuid
+      limit 1
+    `;
+
+    if (!delivery) {
+      throw new Error(
+        "Webhook delivery attempt was not found for this merchant.",
+      );
+    }
+
+    if (delivery.delivery_status !== "failed") {
+      throw new Error(
+        "Only webhook deliveries that have exhausted retries can be retried manually.",
+      );
+    }
+
+    if (delivery.endpoint_status !== "active") {
+      throw new Error(
+        "The webhook endpoint is disabled. Save the endpoint again before retrying delivery.",
+      );
+    }
+
+    await database.sql`
+      update webhook_events
+      set delivery_status = 'pending'
+      where id = ${delivery.webhook_event_id}::uuid
+    `;
+
+    await enqueueMerchantWebhookJob({
+      attemptNumber: delivery.latest_attempt_number + 1,
+      webhookEventId: delivery.webhook_event_id,
+    });
+
+    return {
+      outcome: delivery.outcome,
+      queued: true,
+      webhookEventId: delivery.webhook_event_id,
+    };
   } finally {
     await database.release();
   }
@@ -2431,6 +2933,7 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
     const deliveries = await database.sql<
       {
         attempt_number: number;
+        can_retry: boolean;
         created_at: string;
         delivery_status: string;
         event_type: string;
@@ -2446,10 +2949,14 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
         wda.response_status_code,
         wda.outcome::text as outcome,
         we.event_type::text as event_type,
-        we.delivery_status::text as delivery_status
+        we.delivery_status::text as delivery_status,
+        (we.delivery_status = 'failed' and ep.status = 'active') as can_retry
       from webhook_delivery_attempts wda
       join webhook_events we
         on we.id = wda.webhook_event_id
+      join webhook_endpoints ep
+        on ep.merchant_id = we.merchant_id
+       and ep.environment = 'live'
       where we.merchant_id = ${context.merchant.merchantId}
       order by wda.created_at desc
       limit 10
@@ -2498,6 +3005,7 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
       webhookDeliveries: deliveries.map(
         (delivery): WebhookDeliveryItem => ({
           attemptNumber: delivery.attempt_number,
+          canRetry: delivery.can_retry,
           createdAt: delivery.created_at,
           deliveryStatus: delivery.delivery_status,
           eventType: delivery.event_type,

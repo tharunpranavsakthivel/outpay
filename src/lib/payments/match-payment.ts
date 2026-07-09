@@ -133,7 +133,7 @@ export interface MatchChainEventResult {
   };
   matchedCheckoutSessionId?: string;
   matchedMerchantId?: string;
-  matchedPaymentId?: string;
+  matchedPaymentId?: string | null;
   previousCheckoutStatus?: string;
   previousMatchStatus?: string;
 }

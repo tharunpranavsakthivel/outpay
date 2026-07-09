@@ -178,6 +178,7 @@ export interface WebhookDeliveryItem {
   responseStatusCode: number | null;
   createdAt: string;
   attemptNumber: number;
+  canRetry: boolean;
 }
 
 export interface DevelopersPageData {
