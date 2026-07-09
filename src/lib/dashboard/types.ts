@@ -165,6 +165,7 @@ export interface ApiKeyListItem {
   name: string;
   keyPrefix: string;
   lastFour: string;
+  scopes: string[];
   status: string;
   lastUsedAt: string | null;
   createdAt: string;

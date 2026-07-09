@@ -264,6 +264,58 @@ export default function Developers({
     });
   };
 
+  const revokeKey = (apiKeyId: string) => {
+    if (
+      !window.confirm(
+        "Revoke this API key? Requests using this secret will fail immediately.",
+      )
+    ) {
+      return;
+    }
+
+    startTransition(async () => {
+      setErrorMessage(null);
+      setSaveMessage(null);
+      setRevealedSecret(null);
+
+      const response = await fetch(`/api/developers/api-keys/${apiKeyId}`, {
+        body: JSON.stringify({
+          action: "revoke",
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "PATCH",
+      });
+      const payload = (await response.json()) as
+        | {
+            apiKey?: ApiKeyListItem;
+            error?: { message?: string };
+          }
+        | { apiKey: ApiKeyListItem };
+      const revokeError = (payload as { error?: { message?: string } }).error
+        ?.message;
+
+      if (!response.ok || "error" in payload) {
+        const message = revokeError ?? "Unable to revoke API key.";
+        setErrorMessage(message);
+        toast.error(message);
+        return;
+      }
+
+      const revokedApiKey = payload.apiKey as ApiKeyListItem;
+      setApiKeys((current) =>
+        current.map((apiKey) =>
+          apiKey.id === revokedApiKey.id ? revokedApiKey : apiKey,
+        ),
+      );
+      setSaveMessage(
+        "API key revoked. Requests using it now fail immediately.",
+      );
+      toast.success("API key revoked.");
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background font-sans text-foreground lg:flex">
       <DashboardSidebar
@@ -392,9 +444,11 @@ export default function Developers({
                       <TableRow hoverable={false}>
                         <TableHead>Name</TableHead>
                         <TableHead>Prefix</TableHead>
+                        <TableHead>Scopes</TableHead>
                         <TableHead>Last four</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Last used</TableHead>
+                        <TableHead>Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -403,6 +457,9 @@ export default function Developers({
                           <TableCell>{apiKey.name}</TableCell>
                           <TableCell className="font-mono text-xs">
                             {apiKey.keyPrefix}
+                          </TableCell>
+                          <TableCell className="text-xs text-foreground-lighter">
+                            {apiKey.scopes.join(", ")}
                           </TableCell>
                           <TableCell className="font-mono text-xs">
                             {apiKey.lastFour}
@@ -420,6 +477,22 @@ export default function Developers({
                           </TableCell>
                           <TableCell className="text-xs text-foreground-lighter">
                             {apiKey.lastUsedAt ?? "Never"}
+                          </TableCell>
+                          <TableCell>
+                            {apiKey.status === "active" ? (
+                              <Button
+                                variant="outline"
+                                size="small"
+                                disabled={isPending}
+                                onClick={() => revokeKey(apiKey.id)}
+                              >
+                                Revoke
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-foreground-lighter">
+                                —
+                              </span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

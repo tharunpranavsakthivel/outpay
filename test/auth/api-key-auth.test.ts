@@ -77,4 +77,19 @@ describe("API key authentication", () => {
     expect(result).toBeNull();
     expect(touchLastUsedAt).not.toHaveBeenCalled();
   });
+
+  it("fails immediately when the active-key lookup excludes a revoked key", async () => {
+    const touchLastUsedAt = mock(async () => undefined);
+
+    const result = await authenticateApiKey(
+      "Bearer ck_test_abcd1234_deadbeef",
+      {
+        findActiveApiKeyByPrefix: async () => null,
+        touchLastUsedAt,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(touchLastUsedAt).not.toHaveBeenCalled();
+  });
 });

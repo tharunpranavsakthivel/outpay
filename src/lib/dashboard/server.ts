@@ -85,6 +85,24 @@ interface MerchantWalletContext {
   walletId: string;
 }
 
+interface RevokeApiKeyDependencies {
+  getMerchantContext: () => Promise<MerchantContext>;
+  updateOwnedApiKey: (input: {
+    apiKeyId: string;
+    merchantId: string;
+  }) => Promise<{
+    created_at: string;
+    environment: "test" | "live";
+    id: string;
+    key_prefix: string;
+    last_four: string;
+    last_used_at: string | null;
+    name: string;
+    scopes: string[];
+    status: string;
+  } | null>;
+}
+
 export interface CreateCheckoutForMerchantInput {
   actorType: "api_key" | "user";
   amount: string;
@@ -2896,6 +2914,7 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
         last_four: string;
         last_used_at: string | null;
         name: string;
+        scopes: string[];
         status: string;
       }[]
     >`
@@ -2905,6 +2924,7 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
         name,
         key_prefix,
         last_four,
+        scopes,
         status::text as status,
         last_used_at::text,
         created_at::text
@@ -2984,6 +3004,7 @@ export async function getDevelopersPageData(): Promise<DevelopersPageData> {
           lastFour: apiKey.last_four,
           lastUsedAt: apiKey.last_used_at,
           name: apiKey.name,
+          scopes: apiKey.scopes,
           status: apiKey.status,
         }),
       ),
@@ -3049,6 +3070,7 @@ export async function createApiKey(input: {
         key_prefix: string;
         last_four: string;
         name: string;
+        scopes: string[];
         status: string;
       }[]
     >`
@@ -3077,17 +3099,103 @@ export async function createApiKey(input: {
         name,
         key_prefix,
         last_four,
+        scopes,
         status::text as status,
         created_at::text
     `;
 
     return {
-      apiKey,
+      apiKey: {
+        createdAt: apiKey.created_at,
+        environment: apiKey.environment,
+        id: apiKey.id,
+        keyPrefix: apiKey.key_prefix,
+        lastFour: apiKey.last_four,
+        lastUsedAt: null,
+        name: apiKey.name,
+        scopes: apiKey.scopes,
+        status: apiKey.status,
+      } satisfies ApiKeyListItem,
       revealedSecret: secret.raw,
     };
   } finally {
     await database.release();
   }
+}
+
+/**
+ * Revokes a merchant-owned API key immediately while preserving the original
+ * revocation timestamp on repeated revoke requests.
+ */
+export async function revokeApiKey(
+  input: {
+    apiKeyId: string;
+  },
+  dependencies: RevokeApiKeyDependencies = {
+    getMerchantContext,
+    updateOwnedApiKey: async ({ apiKeyId, merchantId }) => {
+      const database = await connectToDatabase();
+
+      try {
+        const [apiKey] = await database.sql<
+          {
+            created_at: string;
+            environment: "test" | "live";
+            id: string;
+            key_prefix: string;
+            last_four: string;
+            last_used_at: string | null;
+            name: string;
+            scopes: string[];
+            status: string;
+          }[]
+        >`
+          update api_keys
+          set
+            status = 'revoked',
+            revoked_at = coalesce(revoked_at, now())
+          where id = ${apiKeyId}
+            and merchant_id = ${merchantId}
+          returning
+            id::text as id,
+            environment::text as environment,
+            name,
+            key_prefix,
+            last_four,
+            scopes,
+            status::text as status,
+            last_used_at::text,
+            created_at::text
+        `;
+
+        return apiKey ?? null;
+      } finally {
+        await database.release();
+      }
+    },
+  },
+): Promise<ApiKeyListItem> {
+  const context = await dependencies.getMerchantContext();
+  const apiKey = await dependencies.updateOwnedApiKey({
+    apiKeyId: input.apiKeyId,
+    merchantId: context.merchant.merchantId,
+  });
+
+  if (!apiKey) {
+    throw new Error("API key not found for this merchant.");
+  }
+
+  return {
+    createdAt: apiKey.created_at,
+    environment: apiKey.environment,
+    id: apiKey.id,
+    keyPrefix: apiKey.key_prefix,
+    lastFour: apiKey.last_four,
+    lastUsedAt: apiKey.last_used_at,
+    name: apiKey.name,
+    scopes: apiKey.scopes,
+    status: apiKey.status,
+  };
 }
 
 /**
