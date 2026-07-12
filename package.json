@@ -10,6 +10,7 @@
     "start": "next start",
     "worker:payments": "bun workers/payment-listener.ts",
     "worker:provider-health": "bun workers/provider-health.ts",
+    "worker:health": "bun workers/provider-health.ts",
     "worker:reconciler": "bun workers/reconciler.ts",
     "worker:alerts": "bun workers/alerts.ts",
     "worker:webhooks": "bun workers/webhook-dispatcher.ts",

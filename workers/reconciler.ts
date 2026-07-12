@@ -259,10 +259,14 @@ export async function startReconciliationWorker(): Promise<void> {
     message: "Reconciliation worker started",
   });
 
-  const shutdown = () => {
-    for (const stopTask of scheduledTasks) {
-      stopTask();
+  const shutdown = async () => {
+    for (const scheduledTask of scheduledTasks) {
+      scheduledTask.stop();
     }
+
+    await Promise.all(
+      scheduledTasks.map((scheduledTask) => scheduledTask.waitForIdle()),
+    );
 
     logReconcilerEvent({
       level: "info",
@@ -272,8 +276,8 @@ export async function startReconciliationWorker(): Promise<void> {
     process.exit(0);
   };
 
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => void shutdown());
+  process.once("SIGTERM", () => void shutdown());
 }
 
 async function runScanCycle(input: {
@@ -674,9 +678,13 @@ function scheduleRecurringTask(
   taskName: string,
   intervalMs: number,
   handler: () => Promise<unknown>,
-): () => void {
+): {
+  stop: () => void;
+  waitForIdle: () => Promise<void>;
+} {
   let running = false;
   let disposed = false;
+  let currentRun: Promise<void> | null = null;
 
   const execute = async () => {
     if (disposed || running) {
@@ -690,18 +698,22 @@ function scheduleRecurringTask(
     }
 
     running = true;
+    currentRun = (async () => {
+      try {
+        await handler();
+      } catch (error) {
+        logReconcilerEvent({
+          error: error instanceof Error ? error.message : "Unknown task error",
+          level: "error",
+          message: `${taskName} failed`,
+        });
+      } finally {
+        running = false;
+        currentRun = null;
+      }
+    })();
 
-    try {
-      await handler();
-    } catch (error) {
-      logReconcilerEvent({
-        error: error instanceof Error ? error.message : "Unknown task error",
-        level: "error",
-        message: `${taskName} failed`,
-      });
-    } finally {
-      running = false;
-    }
+    await currentRun;
   };
 
   void execute();
@@ -709,9 +721,16 @@ function scheduleRecurringTask(
     void execute();
   }, intervalMs);
 
-  return () => {
-    disposed = true;
-    clearInterval(timer);
+  return {
+    stop: () => {
+      disposed = true;
+      clearInterval(timer);
+    },
+    waitForIdle: async () => {
+      if (currentRun) {
+        await currentRun;
+      }
+    },
   };
 }
 

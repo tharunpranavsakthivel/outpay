@@ -125,7 +125,7 @@ export async function startProviderHealthWorker(): Promise<void> {
     logEvent: logProviderHealthWorkerEvent,
     runChecks: runAllProviderHealthChecks,
   });
-  const stopTask = scheduleRecurringTask(
+  const scheduledTask = scheduleRecurringTask(
     "provider health cycle",
     HEALTH_CHECK_INTERVAL_MS,
     () => worker.runCycle(),
@@ -137,7 +137,8 @@ export async function startProviderHealthWorker(): Promise<void> {
   });
 
   const shutdown = async () => {
-    stopTask();
+    scheduledTask.stop();
+    await scheduledTask.waitForIdle();
     await closeQueues().catch(() => undefined);
     await closeSharedRedisConnection().catch(() => undefined);
     logProviderHealthWorkerEvent({
@@ -231,9 +232,13 @@ function scheduleRecurringTask(
   taskName: string,
   intervalMs: number,
   handler: () => Promise<unknown>,
-): () => void {
+): {
+  stop: () => void;
+  waitForIdle: () => Promise<void>;
+} {
   let running = false;
   let disposed = false;
+  let currentRun: Promise<void> | null = null;
 
   const execute = async () => {
     if (disposed || running) {
@@ -247,18 +252,22 @@ function scheduleRecurringTask(
     }
 
     running = true;
+    currentRun = (async () => {
+      try {
+        await handler();
+      } catch (error) {
+        logProviderHealthWorkerEvent({
+          error: error instanceof Error ? error.message : "Unknown task error",
+          level: "error",
+          message: `${taskName} failed`,
+        });
+      } finally {
+        running = false;
+        currentRun = null;
+      }
+    })();
 
-    try {
-      await handler();
-    } catch (error) {
-      logProviderHealthWorkerEvent({
-        error: error instanceof Error ? error.message : "Unknown task error",
-        level: "error",
-        message: `${taskName} failed`,
-      });
-    } finally {
-      running = false;
-    }
+    await currentRun;
   };
 
   void execute();
@@ -266,9 +275,16 @@ function scheduleRecurringTask(
     void execute();
   }, intervalMs);
 
-  return () => {
-    disposed = true;
-    clearInterval(timer);
+  return {
+    stop: () => {
+      disposed = true;
+      clearInterval(timer);
+    },
+    waitForIdle: async () => {
+      if (currentRun) {
+        await currentRun;
+      }
+    },
   };
 }
 
