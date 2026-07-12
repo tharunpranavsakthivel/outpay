@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -46,6 +46,8 @@ async function getWebhookDeliveries() {
       error instanceof Error
         ? error.message
         : "Unable to load webhook delivery history.",
+      undefined,
+      error,
     );
   }
 }

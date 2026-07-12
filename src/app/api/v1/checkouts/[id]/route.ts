@@ -3,9 +3,9 @@ import {
   publicApiError,
   publicApiJson,
 } from "@/lib/api/public";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { getMerchantCheckoutStatus } from "@/lib/dashboard/server";
+import { setRequestMerchantId, withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -33,6 +33,8 @@ async function getApiCheckout(
         "Provide a valid API key in the Authorization header.",
       );
     }
+
+    setRequestMerchantId(auth.merchantId);
 
     const hasReadScope =
       auth.scopes.includes("checkouts:read") ||
@@ -98,6 +100,9 @@ async function getApiCheckout(
       500,
       "CHECKOUT_READ_FAILED",
       error instanceof Error ? error.message : "Unable to load the checkout.",
+      [],
+      undefined,
+      error,
     );
   }
 }

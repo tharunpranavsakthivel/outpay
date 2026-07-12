@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   updateAccountAvatarColor,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -14,7 +14,7 @@ import {
 /**
  * Persists the signed-in user's initials-avatar background color.
  */
-async function updateAccountAvatarColor(request: Request) {
+async function handleUpdateAccountAvatarColor(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -46,11 +46,13 @@ async function updateAccountAvatarColor(request: Request) {
       422,
       "AVATAR_COLOR_UPDATE_FAILED",
       error instanceof Error ? error.message : "Unable to update avatar color.",
+      undefined,
+      error,
     );
   }
 }
 
 export const PATCH = withRequestLogging(
   "/api/settings/account-avatar-color PATCH",
-  updateAccountAvatarColor,
+  handleUpdateAccountAvatarColor,
 );

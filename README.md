@@ -5,6 +5,13 @@ Outpay is a Next.js 16 merchant checkout prototype for non-custodial USDC paymen
 The payment detection worker now depends on `REDIS_URL` and can be started with
 `bun run worker:payments`.
 
+The alert worker can be started with `bun run worker:alerts`. Set the optional
+`OUTPAY_ALERT_WEBHOOK_URL` in `.env` to a Slack-compatible incoming webhook to
+notify an operator about database connection failures, provider-down
+transitions, webhook success rates below 95%, or queue jobs older than five
+minutes. Structured logs use pino JSON output; `OUTPAY_LOG_LEVEL` controls the
+minimum level.
+
 ## Local setup
 
 1. Install dependencies:

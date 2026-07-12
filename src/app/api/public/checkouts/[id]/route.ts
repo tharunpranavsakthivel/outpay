@@ -1,6 +1,6 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { getPublicCheckoutData } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -42,6 +42,8 @@ async function getPublicCheckout(
       404,
       "PUBLIC_CHECKOUT_NOT_FOUND",
       error instanceof Error ? error.message : "Checkout not found.",
+      undefined,
+      error,
     );
   }
 }

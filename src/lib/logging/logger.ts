@@ -50,6 +50,7 @@ export const logger: Logger = pino({
     level: (label) => ({ level: label }),
   },
   level: process.env.OUTPAY_LOG_LEVEL?.trim() || "info",
+  messageKey: "message",
   redact: {
     censor: REDACTED_VALUE,
     paths: [
@@ -99,6 +100,22 @@ export function getRequestId(request: Request): string {
  */
 export function getRequestLogContext(): RequestLogContext | undefined {
   return requestLogStorage.getStore();
+}
+
+/**
+ * Adds the authenticated merchant identifier to the active request context.
+ * Calls outside a wrapped request are intentionally ignored because they have
+ * no safe correlation scope to attach to.
+ *
+ * Parameters:
+ * - merchantId: Internal merchant UUID known after authentication.
+ */
+export function setRequestMerchantId(merchantId: string): void {
+  const context = getRequestLogContext();
+
+  if (context) {
+    context.merchant_id = merchantId;
+  }
 }
 
 /**
@@ -233,7 +250,7 @@ function serializeError(error: unknown): Record<string, string> {
   };
 }
 
-function sanitizeLogFields(fields: LogFields): LogFields {
+export function sanitizeLogFields(fields: LogFields): LogFields {
   return sanitizeLogValue(fields) as LogFields;
 }
 

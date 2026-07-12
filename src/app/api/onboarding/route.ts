@@ -4,8 +4,8 @@
  */
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { completeMerchantOnboarding } from "@/lib/dashboard/server";
+import { logger, withRequestLogging } from "@/lib/logging/logger";
 import { registerPrimaryWalletWithAlchemy } from "@/lib/providers/alchemy";
 import {
   buildRateLimitKey,
@@ -59,19 +59,9 @@ async function completeOnboarding(request: Request) {
         try {
           await registerPrimaryWalletWithAlchemy(walletAddress);
         } catch (error) {
-          console.error(
-            JSON.stringify({
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Unknown Alchemy registration error",
-              level: "error",
-              message:
-                "Alchemy address registration failed after merchant onboarding",
-              module: "api/onboarding",
-              timestamp: new Date().toISOString(),
-              walletAddress,
-            }),
+          logger.error(
+            { err: error },
+            "Alchemy address registration failed after merchant onboarding",
           );
         }
       });
@@ -83,6 +73,8 @@ async function completeOnboarding(request: Request) {
       422,
       "ONBOARDING_SUBMIT_FAILED",
       error instanceof Error ? error.message : "Unable to complete onboarding.",
+      undefined,
+      error,
     );
   }
 }

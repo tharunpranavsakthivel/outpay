@@ -9,6 +9,7 @@ import {
   hasRequiredSignupLegalAcceptance,
   LEGAL_ACCEPTANCE_REQUIRED_MESSAGE,
 } from "@/lib/legal/acceptance";
+import { logger, withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -49,14 +50,9 @@ async function readAuthPayload(request: Request): Promise<AuthPayload | null> {
       return Object.fromEntries(formData.entries());
     }
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown parse error",
-        level: "error",
-        message: "Unable to parse signup legal acceptance payload",
-        module: "api/auth",
-        timestamp: new Date().toISOString(),
-      }),
+    logger.error(
+      { err: error },
+      "Unable to parse signup legal acceptance payload",
     );
     return null;
   }
@@ -146,12 +142,15 @@ async function maybeRateLimitAuthPost(request: Request) {
   return null;
 }
 
-export const DELETE = authHandlers.DELETE;
-export const GET = authHandlers.GET;
-export const PATCH = authHandlers.PATCH;
-export const PUT = authHandlers.PUT;
+export const DELETE = withRequestLogging(
+  "/api/auth DELETE",
+  authHandlers.DELETE,
+);
+export const GET = withRequestLogging("/api/auth GET", authHandlers.GET);
+export const PATCH = withRequestLogging("/api/auth PATCH", authHandlers.PATCH);
+export const PUT = withRequestLogging("/api/auth PUT", authHandlers.PUT);
 
-export async function POST(request: Request) {
+async function handleAuthPost(request: Request) {
   const rateLimitedResponse = await maybeRateLimitAuthPost(request);
 
   if (rateLimitedResponse) {
@@ -183,3 +182,5 @@ export async function POST(request: Request) {
     ),
   );
 }
+
+export const POST = withRequestLogging("/api/auth POST", handleAuthPost);

@@ -3,9 +3,9 @@ import {
   publicApiError,
   publicApiJson,
 } from "@/lib/api/public";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { listMerchantPayments } from "@/lib/dashboard/server";
+import { setRequestMerchantId, withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -30,6 +30,8 @@ async function getApiPayments(request: Request) {
         "Provide a valid API key in the Authorization header.",
       );
     }
+
+    setRequestMerchantId(auth.merchantId);
 
     if (!auth.scopes.includes("payments:read")) {
       return publicApiError(
@@ -87,11 +89,11 @@ async function getApiPayments(request: Request) {
       500,
       "PAYMENTS_READ_FAILED",
       error instanceof Error ? error.message : "Unable to load payments.",
+      [],
+      undefined,
+      error,
     );
   }
 }
 
-export const GET = withRequestLogging(
-  "/api/v1/payments GET",
-  getApiPayments,
-);
+export const GET = withRequestLogging("/api/v1/payments GET", getApiPayments);

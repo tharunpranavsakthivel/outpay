@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   deactivateStore,
   getCurrentMerchantIdForRateLimit,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -57,6 +57,8 @@ async function updateStoreStatus(request: Request) {
       422,
       "STORE_STATUS_UPDATE_FAILED",
       error instanceof Error ? error.message : "Unable to update store status.",
+      undefined,
+      error,
     );
   }
 }

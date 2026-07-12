@@ -5,6 +5,7 @@
  */
 
 import { connectToDatabase } from "@/lib/database/client";
+import { logger } from "@/lib/logging/logger";
 import { alchemyRpcRequest } from "@/lib/providers/alchemy";
 import { chainstackRpcRequest } from "@/lib/providers/chainstack";
 import type {
@@ -744,8 +745,8 @@ function logProviderHealthEvent(input: {
   status: ProviderHealthStatus;
   transition: ProviderHealthTransition | null;
 }): void {
-  console.error(
-    JSON.stringify({
+  logger.error(
+    {
       chain: BASE_CHAIN,
       error: input.error,
       errorRate: input.rollingWindow.errorRate,
@@ -754,11 +755,11 @@ function logProviderHealthEvent(input: {
       provider: input.provider,
       rateLimitRate: input.rollingWindow.rateLimitRate,
       status: input.status,
-      timestamp: new Date().toISOString(),
       timeoutRate: input.rollingWindow.timeoutRate,
       transitionFrom: input.transition?.previousStatus ?? null,
       transitionTo: input.transition?.nextStatus ?? null,
-    }),
+    },
+    "Provider health check failed or degraded",
   );
 }
 

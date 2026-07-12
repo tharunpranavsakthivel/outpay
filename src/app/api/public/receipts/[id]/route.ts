@@ -1,6 +1,6 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { getPublicReceiptData } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -41,6 +41,8 @@ async function getPublicReceipt(
       404,
       "PUBLIC_RECEIPT_NOT_FOUND",
       error instanceof Error ? error.message : "Receipt not found.",
+      undefined,
+      error,
     );
   }
 }

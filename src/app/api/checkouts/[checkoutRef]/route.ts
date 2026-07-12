@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   deactivateCheckout,
   getCurrentMerchantIdForRateLimit,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -55,6 +55,8 @@ async function patchCheckout(
       422,
       "CHECKOUT_UPDATE_FAILED",
       error instanceof Error ? error.message : "Unable to update checkout.",
+      undefined,
+      error,
     );
   }
 }

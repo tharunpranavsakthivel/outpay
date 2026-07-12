@@ -13,6 +13,8 @@
  */
 
 import { connectToDatabase } from "@/lib/database/client";
+import { logger } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   type MatchChainEventResult,
   matchNormalizedChainEvent,
@@ -586,6 +588,13 @@ function createDefaultDependencies(): ReconcilerDependencies {
             processed_at::text as processed_at
         `;
 
+        if (rows[0]) {
+          emitMetric(METRIC_NAMES.missedWebhookRecoveredTotal, 1, {
+            provider,
+            source: "reconciler",
+          });
+        }
+
         return rows[0] as ProviderEventRawRow;
       } finally {
         await database.release();
@@ -711,27 +720,33 @@ function toRpcHex(value: bigint): string {
 }
 
 function logReconcilerEvent(event: ReconcilerLoggerEvent): void {
-  const logger =
-    event.level === "error"
-      ? console.error
-      : event.level === "warn"
-        ? console.warn
-        : console.info;
+  if (event.recoveredEvents && event.recoveredEvents > 0) {
+    emitMetric(
+      METRIC_NAMES.reconciliationEventsFoundTotal,
+      event.recoveredEvents,
+      {
+        provider: event.provider,
+      },
+    );
+  }
 
-  logger(
-    JSON.stringify({
-      cursorType: event.cursorType ?? null,
-      error: event.error ?? null,
-      fromBlock: event.fromBlock ?? null,
-      level: event.level,
-      message: event.message,
-      module: "workers/reconciler",
-      provider: event.provider ?? null,
-      recoveredEvents: event.recoveredEvents ?? null,
-      timestamp: new Date().toISOString(),
-      toBlock: event.toBlock ?? null,
-    }),
-  );
+  const fields = {
+    cursorType: event.cursorType ?? null,
+    error: event.error ?? null,
+    fromBlock: event.fromBlock ?? null,
+    module: "workers/reconciler",
+    provider: event.provider ?? null,
+    recoveredEvents: event.recoveredEvents ?? null,
+    toBlock: event.toBlock ?? null,
+  };
+
+  if (event.level === "error") {
+    logger.error(fields, event.message);
+  } else if (event.level === "warn") {
+    logger.warn(fields, event.message);
+  } else {
+    logger.info(fields, event.message);
+  }
 }
 
 function readPositiveIntegerEnv(

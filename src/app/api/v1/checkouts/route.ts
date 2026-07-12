@@ -8,10 +8,11 @@ import {
   publicApiJson,
   validateCreateCheckoutApiRequest,
 } from "@/lib/api/public";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { createCheckoutForMerchant } from "@/lib/dashboard/server";
 import { connectToDatabase } from "@/lib/database/client";
+import { setRequestMerchantId, withRequestLogging } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -50,6 +51,8 @@ async function createApiCheckout(request: Request) {
         "Provide a valid API key in the Authorization header.",
       );
     }
+
+    setRequestMerchantId(auth.merchantId);
 
     if (!auth.scopes.includes("checkouts:create")) {
       return publicApiError(
@@ -106,6 +109,9 @@ async function createApiCheckout(request: Request) {
               metadata: body.metadata,
               source: "api",
               successUrl: body.successUrl,
+            });
+            emitMetric(METRIC_NAMES.checkoutsCreatedTotal, 1, {
+              merchant_id: auth.merchantId,
             });
             const responseBody = {
               amount: checkout.amount,
@@ -210,6 +216,8 @@ async function createApiCheckout(request: Request) {
         error.code,
         error.message,
         error.details,
+        undefined,
+        error,
       );
     }
 
@@ -218,6 +226,9 @@ async function createApiCheckout(request: Request) {
       500,
       "CHECKOUT_CREATE_FAILED",
       error instanceof Error ? error.message : "Unable to create the checkout.",
+      [],
+      undefined,
+      error,
     );
   }
 }

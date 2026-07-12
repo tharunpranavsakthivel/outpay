@@ -11,6 +11,7 @@ import {
   connectToDatabase,
   DatabaseConnectionError,
 } from "@/lib/database/client";
+import { logger, setRequestMerchantId } from "@/lib/logging/logger";
 import { enqueueMerchantWebhookJob } from "@/lib/queues/jobs";
 import {
   getObject,
@@ -522,6 +523,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
  */
 export async function getCurrentMerchantIdForRateLimit(): Promise<string> {
   const context = await getMerchantContext();
+  setRequestMerchantId(context.merchant.merchantId);
   return context.merchant.merchantId;
 }
 
@@ -1584,18 +1586,15 @@ async function writeAuditLogBestEffort(
       await writeAuditLog(savepointSql, input);
     });
   } catch (error) {
-    console.error(
-      JSON.stringify({
+    logger.error(
+      {
         action: input.action,
-        error: error instanceof Error ? error.message : "Unknown audit error",
-        level: "error",
-        merchantId: input.merchantId,
-        message: "Audit log insert failed after sensitive mutation.",
-        module: "dashboard/server",
-        resourceId: input.resourceId,
-        resourceType: input.resourceType,
-        timestamp: new Date().toISOString(),
-      }),
+        merchant_id: input.merchantId,
+        resource_id: input.resourceId,
+        resource_type: input.resourceType,
+        err: error,
+      },
+      "Audit log insert failed after sensitive mutation.",
     );
   }
 }

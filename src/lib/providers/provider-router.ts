@@ -4,6 +4,8 @@
  * provider when enabled.
  */
 
+import { logger } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import { alchemyRpcRequest } from "@/lib/providers/alchemy";
 import { chainstackRpcRequest } from "@/lib/providers/chainstack";
 
@@ -294,8 +296,27 @@ function parseBooleanEnv(
  * - event: Routing event metadata.
  */
 function logProviderRouterEvent(event: ProviderRouterLogEvent): void {
-  console.error(
-    JSON.stringify({
+  if (event.event === "failover") {
+    emitMetric(METRIC_NAMES.providerFailoverCount, 1, {
+      from_provider: event.provider,
+      method: event.method,
+      to_provider: event.secondaryProvider,
+    });
+    logger.warn(
+      {
+        event: event.event,
+        method: event.method,
+        module: "provider-router",
+        provider: event.provider,
+        secondaryProvider: event.secondaryProvider ?? null,
+      },
+      "RPC provider failover activated",
+    );
+    return;
+  }
+
+  logger.error(
+    {
       attempt: event.attempt ?? null,
       error: event.error ?? null,
       event: event.event,
@@ -303,8 +324,8 @@ function logProviderRouterEvent(event: ProviderRouterLogEvent): void {
       module: "provider-router",
       provider: event.provider,
       secondaryProvider: event.secondaryProvider ?? null,
-      timestamp: new Date().toISOString(),
-    }),
+    },
+    "RPC provider request failed",
   );
 }
 

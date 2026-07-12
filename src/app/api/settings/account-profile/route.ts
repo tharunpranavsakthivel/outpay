@@ -1,10 +1,10 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getAccountSettingsData,
   getCurrentMerchantIdForRateLimit,
   updateAccountProfile,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -41,6 +41,8 @@ async function getAccountProfile() {
       400,
       "ACCOUNT_SETTINGS_LOAD_FAILED",
       error instanceof Error ? error.message : "Unable to load account data.",
+      undefined,
+      error,
     );
   }
 }
@@ -48,7 +50,7 @@ async function getAccountProfile() {
 /**
  * Updates mutable user profile fields used by the dashboard.
  */
-async function updateAccountProfile(request: Request) {
+async function handleUpdateAccountProfile(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -82,6 +84,8 @@ async function updateAccountProfile(request: Request) {
       422,
       "ACCOUNT_PROFILE_UPDATE_FAILED",
       error instanceof Error ? error.message : "Unable to update account.",
+      undefined,
+      error,
     );
   }
 }
@@ -92,5 +96,5 @@ export const GET = withRequestLogging(
 );
 export const PATCH = withRequestLogging(
   "/api/settings/account-profile PATCH",
-  updateAccountProfile,
+  handleUpdateAccountProfile,
 );

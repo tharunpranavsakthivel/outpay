@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   retryWebhookDelivery,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -14,7 +14,7 @@ import {
 /**
  * Manual retry API for a previously exhausted merchant webhook delivery.
  */
-async function retryWebhookDelivery(
+async function handleRetryWebhookDelivery(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -54,11 +54,17 @@ async function retryWebhookDelivery(
         : "Unable to retry the webhook delivery.";
     const status = message.includes("not found") ? 404 : 422;
 
-    return jsonError(status, "WEBHOOK_DELIVERY_RETRY_FAILED", message);
+    return jsonError(
+      status,
+      "WEBHOOK_DELIVERY_RETRY_FAILED",
+      message,
+      undefined,
+      error,
+    );
   }
 }
 
 export const POST = withRequestLogging(
   "/api/developers/webhook-deliveries/[id]/retry POST",
-  retryWebhookDelivery,
+  handleRetryWebhookDelivery,
 );

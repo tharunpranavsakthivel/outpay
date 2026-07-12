@@ -3,11 +3,11 @@
  */
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   replacePrimaryWallet,
 } from "@/lib/dashboard/server";
+import { logger, withRequestLogging } from "@/lib/logging/logger";
 import { registerPrimaryWalletWithAlchemy } from "@/lib/providers/alchemy";
 import {
   buildRateLimitKey,
@@ -57,19 +57,9 @@ async function updatePayoutWallet(request: Request) {
         try {
           await registerPrimaryWalletWithAlchemy(walletAddress);
         } catch (error) {
-          console.error(
-            JSON.stringify({
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Unknown Alchemy registration error",
-              level: "error",
-              message:
-                "Alchemy address registration failed after payout-wallet update",
-              module: "api/settings/payout-wallet",
-              timestamp: new Date().toISOString(),
-              walletAddress,
-            }),
+          logger.error(
+            { err: error },
+            "Alchemy address registration failed after payout-wallet update",
           );
         }
       });
@@ -81,6 +71,8 @@ async function updatePayoutWallet(request: Request) {
       422,
       "PAYOUT_WALLET_UPDATE_FAILED",
       error instanceof Error ? error.message : "Unable to update wallet.",
+      undefined,
+      error,
     );
   }
 }

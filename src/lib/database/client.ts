@@ -6,6 +6,7 @@
 
 import postgres, { type Sql } from "postgres";
 
+import { reportDatabaseConnectionFailure } from "@/lib/observability/alerts";
 import {
   type DatabaseUrlSource,
   formatDatabaseError,
@@ -60,9 +61,11 @@ export async function connectToDatabase(): Promise<ConnectedDatabaseClient> {
     }
   }
 
-  throw new DatabaseConnectionError(
+  const connectionError = new DatabaseConnectionError(
     `Unable to connect to PostgreSQL using the configured environment sources. ${failures.join(" | ")}`,
   );
+  reportDatabaseConnectionFailure(connectionError);
+  throw connectionError;
 }
 
 function createPostgresClient(

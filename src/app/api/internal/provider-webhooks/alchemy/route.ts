@@ -5,8 +5,9 @@
 
 import { createHash } from "node:crypto";
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import { connectToDatabase } from "@/lib/database/client";
+import { logger, withRequestLogging } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import { normalizeAlchemyAddressActivityPayload } from "@/lib/payments/normalize-event";
 import {
   buildStoredAlchemyPayload,
@@ -36,6 +37,7 @@ const rateLimitBuckets = new Map<
  * - `429` when the caller exceeds the provider-specific intake rate limit.
  */
 async function receiveAlchemyWebhook(request: Request) {
+  const startedAt = performance.now();
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-alchemy-signature");
   const sourceIp = readSourceIp(request);
@@ -59,6 +61,7 @@ async function receiveAlchemyWebhook(request: Request) {
   } catch (error) {
     parseError =
       error instanceof Error ? error.message : "Unable to parse webhook body.";
+    logger.warn({ err: error }, "Unable to parse Alchemy webhook body");
   }
 
   const signatureValid = verifyWebhookSignature(rawBody, signatureHeader);
@@ -110,6 +113,10 @@ async function receiveAlchemyWebhook(request: Request) {
       });
     }
 
+    emitMetric(
+      METRIC_NAMES.alchemyWebhookLatencyMs,
+      performance.now() - startedAt,
+    );
     return Response.json({ ok: true });
   } catch (error) {
     logAlchemyWebhook("error", "Alchemy webhook intake failed", {
@@ -123,6 +130,8 @@ async function receiveAlchemyWebhook(request: Request) {
       500,
       "ALCHEMY_WEBHOOK_INTAKE_FAILED",
       "Unable to store the provider webhook delivery.",
+      undefined,
+      error,
     );
   }
 }
@@ -291,23 +300,11 @@ function logAlchemyWebhook(
   message: string,
   metadata: Record<string, unknown>,
 ): void {
-  const payload = JSON.stringify({
-    level,
+  logger[level](
+    {
+      module: "alchemy-webhook-intake",
+      ...metadata,
+    },
     message,
-    module: "alchemy-webhook-intake",
-    timestamp: new Date().toISOString(),
-    ...metadata,
-  });
-
-  if (level === "error") {
-    console.error(payload);
-    return;
-  }
-
-  if (level === "warn") {
-    console.warn(payload);
-    return;
-  }
-
-  console.info(payload);
+  );
 }

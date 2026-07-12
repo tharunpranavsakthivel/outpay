@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { publicApiError } from "@/lib/api/public";
 import { jsonError } from "@/lib/dashboard/http";
+import { logger } from "@/lib/logging/logger";
 import { getSharedRedisConnection } from "@/lib/queues/redis";
 
 export interface RateLimitPolicy {
@@ -611,20 +612,12 @@ function logRateLimitEvent(
   message: string,
   metadata: Record<string, unknown>,
 ) {
-  const payload = JSON.stringify({
-    level,
-    message,
-    module: "security/rate-limit",
-    timestamp: new Date().toISOString(),
-    ...metadata,
-  });
-
   if (level === "error") {
-    console.error(payload);
+    logger.error({ module: "security/rate-limit", ...metadata }, message);
     return;
   }
 
-  console.warn(payload);
+  logger.warn({ module: "security/rate-limit", ...metadata }, message);
 }
 
 /**

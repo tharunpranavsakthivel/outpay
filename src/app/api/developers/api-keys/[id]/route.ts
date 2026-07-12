@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   revokeApiKey,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -66,7 +66,13 @@ async function updateApiKey(
       error instanceof Error ? error.message : "Unable to update the API key.";
     const status = message.includes("not found") ? 404 : 422;
 
-    return jsonError(status, "API_KEY_UPDATE_FAILED", message);
+    return jsonError(
+      status,
+      "API_KEY_UPDATE_FAILED",
+      message,
+      undefined,
+      error,
+    );
   }
 }
 

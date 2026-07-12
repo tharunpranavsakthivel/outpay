@@ -1,10 +1,10 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getStoreSettingsData,
   updateStoreProfile,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -41,6 +41,8 @@ async function getStoreProfile() {
       400,
       "STORE_SETTINGS_LOAD_FAILED",
       error instanceof Error ? error.message : "Unable to load store settings.",
+      undefined,
+      error,
     );
   }
 }
@@ -90,6 +92,8 @@ async function updateStoreProfileHandler(request: Request) {
       error instanceof Error
         ? error.message
         : "Unable to update merchant profile.",
+      undefined,
+      error,
     );
   }
 }

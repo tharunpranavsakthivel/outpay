@@ -9,6 +9,8 @@
 import { randomUUID } from "node:crypto";
 import { type ConnectionOptions, Worker } from "bullmq";
 import { connectToDatabase } from "@/lib/database/client";
+import { logger } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   attachDeadLetterHandler,
   type MerchantWebhookJobPayload,
@@ -166,6 +168,10 @@ async function processWebhookJob(
       eventId: context.eventId,
       payload: context.payload,
       persistedAttemptNumber,
+    });
+    emitMetric(METRIC_NAMES.webhookDeliveryFailureCount, 1, {
+      merchant_id: context.merchantId,
+      outcome: dispatchResult.outcome,
     });
 
     if (hasWebhookRetryRemaining(cycleAttemptNumber)) {
@@ -478,15 +484,7 @@ function logWorkerEvent(
   message: string,
   details: Record<string, unknown>,
 ): void {
-  console[level](
-    JSON.stringify({
-      details,
-      level,
-      message,
-      module: "workers/webhook-dispatcher",
-      timestamp: new Date().toISOString(),
-    }),
-  );
+  logger[level]({ module: "workers/webhook-dispatcher", ...details }, message);
 }
 
 function readPositiveInteger(

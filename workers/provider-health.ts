@@ -11,6 +11,8 @@
  * - BullMQ alert queue helpers for operator-visible transition fan-out.
  */
 
+import { logger } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   getProviderHealthCheckIntervalSeconds,
   type ProviderHealthCheckResult,
@@ -73,6 +75,17 @@ export function createProviderHealthWorker(
       let alertsQueued = 0;
 
       for (const check of checks) {
+        const latencyMetric =
+          check.provider === "alchemy"
+            ? METRIC_NAMES.alchemyRpcLatencyMs
+            : METRIC_NAMES.chainstackRpcLatencyMs;
+        if (check.latencyMs !== null) {
+          emitMetric(latencyMetric, check.latencyMs, {
+            provider: check.provider,
+            status: check.status,
+          });
+        }
+
         if (!check.transition) {
           continue;
         }
@@ -268,27 +281,23 @@ function scheduleRecurringTask(
 function logProviderHealthWorkerEvent(
   event: ProviderHealthWorkerLogEvent,
 ): void {
-  const logger =
-    event.level === "error"
-      ? console.error
-      : event.level === "warn"
-        ? console.warn
-        : console.info;
+  const fields = {
+    alertsQueued: event.alertsQueued ?? null,
+    error: event.error ?? null,
+    module: "workers/provider-health",
+    provider: event.provider ?? null,
+    status: event.status ?? null,
+    transitionFrom: event.transitionFrom ?? null,
+    transitionTo: event.transitionTo ?? null,
+  };
 
-  logger(
-    JSON.stringify({
-      alertsQueued: event.alertsQueued ?? null,
-      error: event.error ?? null,
-      level: event.level,
-      message: event.message,
-      module: "workers/provider-health",
-      provider: event.provider ?? null,
-      status: event.status ?? null,
-      timestamp: new Date().toISOString(),
-      transitionFrom: event.transitionFrom ?? null,
-      transitionTo: event.transitionTo ?? null,
-    }),
-  );
+  if (event.level === "error") {
+    logger.error(fields, event.message);
+  } else if (event.level === "warn") {
+    logger.warn(fields, event.message);
+  } else {
+    logger.info(fields, event.message);
+  }
 }
 
 if (import.meta.main) {

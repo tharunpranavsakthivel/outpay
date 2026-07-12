@@ -3,8 +3,9 @@
  * `/api/v1/*` REST API.
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
+  getRequestId,
   logApiErrorResponse,
   withRequestIdHeader,
 } from "@/lib/logging/logger";
@@ -79,11 +80,7 @@ export interface IdempotencyStore<TBody> {
  * - Stable request identifier for the current response.
  */
 export function getPublicApiRequestId(request: Request) {
-  return (
-    request.headers.get("x-request-id")?.trim() ||
-    request.headers.get("x-correlation-id")?.trim() ||
-    randomUUID()
-  );
+  return getRequestId(request);
 }
 
 /**
@@ -122,18 +119,18 @@ export function publicApiError(
 
   return withRequestIdHeader(
     Response.json(
-    {
-      error: {
-        code,
-        details,
-        message,
-        request_id: requestId,
+      {
+        error: {
+          code,
+          details,
+          message,
+          request_id: requestId,
+        },
       },
-    },
-    {
-      headers: responseHeaders,
-      status,
-    },
+      {
+        headers: responseHeaders,
+        status,
+      },
     ),
     requestId,
   );

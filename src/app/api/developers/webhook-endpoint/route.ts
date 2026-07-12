@@ -1,11 +1,11 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
   queueTestWebhookDelivery,
   upsertWebhookEndpoint,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -49,6 +49,8 @@ async function getWebhookEndpoint() {
       400,
       "WEBHOOK_ENDPOINT_LOAD_FAILED",
       error instanceof Error ? error.message : "Unable to load webhook data.",
+      undefined,
+      error,
     );
   }
 }
@@ -89,6 +91,8 @@ async function updateWebhookEndpoint(request: Request) {
       error instanceof Error
         ? error.message
         : "Unable to update the webhook endpoint.",
+      undefined,
+      error,
     );
   }
 }
@@ -126,6 +130,8 @@ async function sendWebhookTest() {
       error instanceof Error
         ? error.message
         : "Unable to queue a test webhook delivery.",
+      undefined,
+      error,
     );
   }
 }

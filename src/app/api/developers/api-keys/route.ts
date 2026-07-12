@@ -1,10 +1,10 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   createApiKey,
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -45,6 +45,8 @@ async function getApiKeys() {
       400,
       "API_KEYS_LOAD_FAILED",
       error instanceof Error ? error.message : "Unable to load API keys.",
+      undefined,
+      error,
     );
   }
 }
@@ -52,7 +54,7 @@ async function getApiKeys() {
 /**
  * Creates a new one-time-reveal API secret mapped to api_keys.
  */
-async function createApiKey(request: Request) {
+async function handleCreateApiKey(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -99,6 +101,8 @@ async function createApiKey(request: Request) {
       422,
       "API_KEY_CREATE_FAILED",
       error instanceof Error ? error.message : "Unable to create API key.",
+      undefined,
+      error,
     );
   }
 }
@@ -109,5 +113,5 @@ export const GET = withRequestLogging(
 );
 export const POST = withRequestLogging(
   "/api/developers/api-keys POST",
-  createApiKey,
+  handleCreateApiKey,
 );

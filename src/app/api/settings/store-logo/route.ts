@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   uploadStoreLogo,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -20,7 +20,7 @@ import {
  * the onboarding flow (after the merchant is created) and Settings > Store
  * profile.
  */
-async function uploadStoreLogo(request: Request) {
+async function handleUploadStoreLogo(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -75,11 +75,13 @@ async function uploadStoreLogo(request: Request) {
       422,
       "STORE_LOGO_UPLOAD_FAILED",
       error instanceof Error ? error.message : "Unable to upload store logo.",
+      undefined,
+      error,
     );
   }
 }
 
 export const POST = withRequestLogging(
   "/api/settings/store-logo POST",
-  uploadStoreLogo,
+  handleUploadStoreLogo,
 );

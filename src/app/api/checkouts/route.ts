@@ -1,10 +1,11 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   createDashboardCheckout,
   getCheckoutListPageData,
   getCurrentMerchantIdForRateLimit,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -42,6 +43,8 @@ async function getCheckouts() {
       400,
       "CHECKOUT_LIST_FAILED",
       error instanceof Error ? error.message : "Unable to load checkouts.",
+      undefined,
+      error,
     );
   }
 }
@@ -81,6 +84,7 @@ async function createCheckout(request: Request) {
       orderReference: body.orderReference ?? "",
       redirectUrl: body.redirectUrl ?? "",
     });
+    emitMetric(METRIC_NAMES.checkoutsCreatedTotal, 1);
 
     return Response.json(result, {
       status: 201,
@@ -90,12 +94,11 @@ async function createCheckout(request: Request) {
       422,
       "CHECKOUT_CREATE_FAILED",
       error instanceof Error ? error.message : "Unable to create checkout.",
+      undefined,
+      error,
     );
   }
 }
 
 export const GET = withRequestLogging("/api/checkouts GET", getCheckouts);
-export const POST = withRequestLogging(
-  "/api/checkouts POST",
-  createCheckout,
-);
+export const POST = withRequestLogging("/api/checkouts POST", createCheckout);

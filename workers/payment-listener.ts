@@ -4,6 +4,8 @@
  */
 
 import { type ConnectionOptions, Worker } from "bullmq";
+import { logger } from "@/lib/logging/logger";
+import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
 import {
   matchNormalizedChainEvent,
   recheckDetectedPayment,
@@ -35,6 +37,7 @@ const chainEventWorker = new Worker<ChainEventJobPayload>(
   async (job) => {
     const result = await matchNormalizedChainEvent(job.data);
     await enqueueFollowUps(result);
+    recordPaymentMetrics(result);
     logWorkerEvent("info", "Processed chain-event job", {
       evaluation: result.evaluation?.outcome ?? null,
       jobId: job.id,
@@ -53,6 +56,7 @@ const paymentMatchingWorker = new Worker<PaymentMatchJobPayload>(
   async (job) => {
     const result = await recheckDetectedPayment(job.data);
     await enqueueFollowUps(result);
+    recordPaymentMetrics(result);
     logWorkerEvent("info", "Processed payment-match job", {
       evaluation: result.evaluation?.outcome ?? null,
       jobId: job.id,
@@ -71,6 +75,7 @@ const confirmationsWorker = new Worker<ConfirmationJobPayload>(
   async (job) => {
     const result = await recheckDetectedPayment(job.data);
     await enqueueFollowUps(result);
+    recordPaymentMetrics(result);
     logWorkerEvent("info", "Processed confirmation job", {
       evaluation: result.evaluation?.outcome ?? null,
       jobId: job.id,
@@ -158,15 +163,37 @@ function logWorkerEvent(
   message: string,
   details: Record<string, unknown>,
 ): void {
-  console[level](
-    JSON.stringify({
-      details,
-      level,
-      message,
-      module: "workers/payment-listener",
-      timestamp: new Date().toISOString(),
-    }),
-  );
+  logger[level]({ module: "workers/payment-listener", ...details }, message);
+}
+
+function recordPaymentMetrics(
+  result: Awaited<ReturnType<typeof matchNormalizedChainEvent>>,
+): void {
+  const outcome = result.evaluation?.outcome;
+
+  if (outcome === "accepted_pending") {
+    emitMetric(METRIC_NAMES.paymentsDetectedTotal, 1, {
+      merchant_id: result.matchedMerchantId,
+    });
+  }
+
+  if (outcome === "accepted_paid") {
+    emitMetric(METRIC_NAMES.paymentsConfirmedTotal, 1, {
+      merchant_id: result.matchedMerchantId,
+    });
+  }
+
+  if (outcome === "underpaid") {
+    emitMetric(METRIC_NAMES.paymentsUnderpaidTotal, 1, {
+      merchant_id: result.matchedMerchantId,
+    });
+  }
+
+  if (outcome === "late") {
+    emitMetric(METRIC_NAMES.paymentsLateTotal, 1, {
+      merchant_id: result.matchedMerchantId,
+    });
+  }
 }
 
 function readPositiveInteger(

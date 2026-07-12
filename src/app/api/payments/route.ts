@@ -1,9 +1,9 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getPaymentsPageData,
 } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -61,6 +61,8 @@ async function getPayments(request: Request) {
       400,
       "PAYMENTS_LOAD_FAILED",
       error instanceof Error ? error.message : "Unable to load payments.",
+      undefined,
+      error,
     );
   }
 }
