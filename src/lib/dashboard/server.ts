@@ -67,6 +67,26 @@ const BASE_USDC_CONTRACT_ADDRESS_NORMALIZED =
 type DatabaseSql =
   | Sql<Record<string, unknown>>
   | TransactionSql<Record<string, unknown>>;
+type AuditSql = TransactionSql<Record<string, unknown>>;
+
+type AuditAction =
+  | "api_key_created"
+  | "api_key_revoked"
+  | "checkout_deactivated"
+  | "store_deactivated"
+  | "wallet_changed"
+  | "webhook_endpoint_updated";
+type AuditResourceType = "api_key" | "checkout" | "merchant" | "wallet";
+
+interface AuditLogInput {
+  action: AuditAction;
+  actorType: "api_key" | "system" | "user" | "worker";
+  actorUserId: string | null;
+  merchantId: string;
+  metadata: Record<string, unknown>;
+  resourceId: string | null;
+  resourceType: AuditResourceType;
+}
 
 interface MerchantContext {
   email: string;
@@ -87,9 +107,12 @@ interface MerchantWalletContext {
 
 interface RevokeApiKeyDependencies {
   getMerchantContext: () => Promise<MerchantContext>;
+  recordAuditLog?: (input: AuditLogInput) => Promise<void>;
+  runTransaction?: <T>(callback: (sql: AuditSql) => Promise<T>) => Promise<T>;
   updateOwnedApiKey: (input: {
     apiKeyId: string;
     merchantId: string;
+    sql?: AuditSql;
   }) => Promise<{
     created_at: string;
     environment: "test" | "live";
@@ -1501,6 +1524,106 @@ function createWebhookSecret() {
 }
 
 /**
+ * Inserts one merchant-scoped audit event using the caller's transaction.
+ *
+ * Parameters:
+ * - sql: PostgreSQL transaction client used by the enclosing mutation.
+ * - input: Actor, resource, action, and secret-safe metadata for the event.
+ *
+ * Returns:
+ * - A promise that resolves after the audit row is inserted.
+ *
+ * Throws:
+ * - The database error from the insert so the caller can apply its own
+ *   savepoint and failure policy.
+ */
+async function writeAuditLog(
+  sql: AuditSql,
+  input: AuditLogInput,
+): Promise<void> {
+  await sql`
+    insert into audit_logs (
+      merchant_id,
+      actor_user_id,
+      actor_type,
+      action,
+      resource_type,
+      resource_id,
+      metadata
+    ) values (
+      ${input.merchantId},
+      ${input.actorUserId},
+      ${input.actorType},
+      ${input.action},
+      ${input.resourceType},
+      ${input.resourceId},
+      ${JSON.stringify(input.metadata)}::jsonb
+    )
+  `;
+}
+
+/**
+ * Attempts an audit insert without allowing an audit-only failure to abort the
+ * business mutation. A savepoint is required because PostgreSQL marks the
+ * outer transaction failed after any statement error.
+ *
+ * Parameters:
+ * - sql: Transaction client for the enclosing sensitive mutation.
+ * - input: Secret-safe audit event to persist.
+ *
+ * Returns:
+ * - A promise that resolves whether the audit insert succeeds or is logged as
+ *   a separate operational error.
+ */
+async function writeAuditLogBestEffort(
+  sql: AuditSql,
+  input: AuditLogInput,
+): Promise<void> {
+  try {
+    await sql.savepoint(async (savepointSql) => {
+      await writeAuditLog(savepointSql, input);
+    });
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        action: input.action,
+        error: error instanceof Error ? error.message : "Unknown audit error",
+        level: "error",
+        merchantId: input.merchantId,
+        message: "Audit log insert failed after sensitive mutation.",
+        module: "dashboard/server",
+        resourceId: input.resourceId,
+        resourceType: input.resourceType,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+}
+
+/**
+ * Removes URL components that may carry credentials or bearer-like tokens
+ * before a webhook endpoint is copied into audit metadata.
+ *
+ * Parameters:
+ * - url: Validated webhook URL, or null when no endpoint existed previously.
+ *
+ * Returns:
+ * - Origin and path only, excluding query strings and fragments.
+ */
+function sanitizeWebhookUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    return `${parsedUrl.origin}${parsedUrl.pathname}`;
+  } catch {
+    return "[unavailable]";
+  }
+}
+
+/**
  * Inserts a new dashboard checkout backed by checkout_sessions,
  * payment_intents, and checkout_status_history.
  */
@@ -1729,6 +1852,26 @@ export async function deactivateCheckout(checkoutRef: string) {
 
   try {
     const result = await database.sql.begin(async (sql) => {
+      const [existingCheckout] = await sql<
+        {
+          id: string;
+          status: string;
+        }[]
+      >`
+        select id::text as id, status::text as status
+        from checkout_sessions
+        where merchant_id = ${context.merchant.merchantId}
+          and checkout_ref = ${checkoutRef}
+          and status in ('pending', 'detected')
+        for update
+      `;
+
+      if (!existingCheckout) {
+        throw new Error(
+          "Only pending or detected checkouts can be deactivated from the dashboard.",
+        );
+      }
+
       const rows = await sql<
         {
           id: string;
@@ -1741,17 +1884,27 @@ export async function deactivateCheckout(checkoutRef: string) {
           deactivated_at = now(),
           deactivated_by_user_id = ${context.userId},
           updated_at = now()
-        where merchant_id = ${context.merchant.merchantId}
-          and checkout_ref = ${checkoutRef}
-          and status in ('pending', 'detected')
+        where id = ${existingCheckout.id}
         returning id::text as id, status::text as status
       `;
 
       if (!rows[0]) {
-        throw new Error(
-          "Only pending or detected checkouts can be deactivated from the dashboard.",
-        );
+        throw new Error("Checkout deactivation did not update a checkout row.");
       }
+
+      await writeAuditLogBestEffort(sql, {
+        action: "checkout_deactivated",
+        actorType: "user",
+        actorUserId: context.userId,
+        merchantId: context.merchant.merchantId,
+        metadata: {
+          checkoutRef,
+          newStatus: rows[0].status,
+          previousStatus: existingCheckout.status,
+        },
+        resourceId: rows[0].id,
+        resourceType: "checkout",
+      });
 
       await sql`
         insert into checkout_status_history (
@@ -1764,7 +1917,7 @@ export async function deactivateCheckout(checkoutRef: string) {
           message
         ) values (
           ${rows[0].id},
-          'pending',
+          ${existingCheckout.status},
           'deactivated',
           'manual_deactivation',
           'user',
@@ -2354,6 +2507,21 @@ export async function replacePrimaryWallet(input: {
         )
       `;
 
+      await writeAuditLogBestEffort(sql, {
+        action: "wallet_changed",
+        actorType: "user",
+        actorUserId: context.userId,
+        merchantId: context.merchant.merchantId,
+        metadata: {
+          newWalletAddress: nextAddress,
+          newWalletId: newWallet.id,
+          oldWalletAddress: currentWallet.address,
+          oldWalletId: currentWallet.walletId,
+        },
+        resourceId: newWallet.id,
+        resourceType: "wallet",
+      });
+
       await sql`
         insert into merchant_onboarding (
           merchant_id,
@@ -2393,48 +2561,92 @@ export async function upsertWebhookEndpoint(input: { url: string }) {
   const encryptedSecret = encryptWebhookSigningSecret(secret.raw);
 
   try {
-    const [endpoint] = await database.sql<
-      {
-        last_test_sent_at: string | null;
-        signing_secret_prefix: string;
-        url: string;
-      }[]
-    >`
-      insert into webhook_endpoints (
-        merchant_id,
-        environment,
-        url,
-        signing_secret_hash,
-        signing_secret_encrypted,
-        signing_secret_prefix,
-        status,
-        failure_count,
-        created_by_user_id
-      ) values (
-        ${context.merchant.merchantId},
-        'live',
-        ${url},
-        ${secret.hash},
-        ${encryptedSecret},
-        ${secret.prefix},
-        'active',
-        0,
-        ${context.userId}
-      )
-      on conflict (merchant_id, environment) do update
-        set
-          url = excluded.url,
-          signing_secret_hash = excluded.signing_secret_hash,
-          signing_secret_encrypted = excluded.signing_secret_encrypted,
-          signing_secret_prefix = excluded.signing_secret_prefix,
-          status = 'active',
-          failure_count = 0,
-          updated_at = now()
-      returning
-        url,
-        signing_secret_prefix,
-        last_test_sent_at::text
-    `;
+    const endpoint = await database.sql.begin(async (sql) => {
+      const [existingEndpoint] = await sql<
+        {
+          id: string;
+          url: string;
+        }[]
+      >`
+        select id::text as id, url
+        from webhook_endpoints
+        where merchant_id = ${context.merchant.merchantId}
+          and environment = 'live'
+        for update
+      `;
+
+      const [updatedEndpoint] = await sql<
+        {
+          id: string;
+          last_test_sent_at: string | null;
+          signing_secret_prefix: string;
+          url: string;
+        }[]
+      >`
+        insert into webhook_endpoints (
+          merchant_id,
+          environment,
+          url,
+          signing_secret_hash,
+          signing_secret_encrypted,
+          signing_secret_prefix,
+          status,
+          failure_count,
+          created_by_user_id
+        ) values (
+          ${context.merchant.merchantId},
+          'live',
+          ${url},
+          ${secret.hash},
+          ${encryptedSecret},
+          ${secret.prefix},
+          'active',
+          0,
+          ${context.userId}
+        )
+        on conflict (merchant_id, environment) do update
+          set
+            url = excluded.url,
+            signing_secret_hash = excluded.signing_secret_hash,
+            signing_secret_encrypted = excluded.signing_secret_encrypted,
+            signing_secret_prefix = excluded.signing_secret_prefix,
+            status = 'active',
+            failure_count = 0,
+            updated_at = now()
+        returning
+          id::text as id,
+          url,
+          signing_secret_prefix,
+          last_test_sent_at::text
+      `;
+
+      if (!updatedEndpoint) {
+        throw new Error(
+          "Webhook endpoint upsert did not update an endpoint row.",
+        );
+      }
+
+      await writeAuditLogBestEffort(sql, {
+        action: "webhook_endpoint_updated",
+        actorType: "user",
+        actorUserId: context.userId,
+        merchantId: context.merchant.merchantId,
+        metadata: {
+          newUrl: sanitizeWebhookUrl(updatedEndpoint.url),
+          oldUrl: sanitizeWebhookUrl(existingEndpoint?.url ?? null),
+          secretRotated: true,
+          webhookEndpointId: updatedEndpoint.id,
+        },
+        resourceId: context.merchant.merchantId,
+        resourceType: "merchant",
+      });
+
+      return {
+        last_test_sent_at: updatedEndpoint.last_test_sent_at,
+        signing_secret_prefix: updatedEndpoint.signing_secret_prefix,
+        url: updatedEndpoint.url,
+      };
+    });
 
     return {
       endpoint,
@@ -2667,15 +2879,39 @@ export async function deactivateStore(input: { confirmationText: string }) {
   const database = await connectToDatabase();
 
   try {
-    await database.sql`
-      update merchants
-      set
-        status = 'deactivated',
-        deactivated_at = now(),
-        deactivated_reason = 'Merchant deactivated the store from dashboard settings.',
-        updated_at = now()
-      where id = ${context.merchant.merchantId}
-    `;
+    await database.sql.begin(async (sql) => {
+      const [merchant] = await sql<
+        {
+          status: string;
+        }[]
+      >`
+        update merchants
+        set
+          status = 'deactivated',
+          deactivated_at = now(),
+          deactivated_reason = 'Merchant deactivated the store from dashboard settings.',
+          updated_at = now()
+        where id = ${context.merchant.merchantId}
+        returning status::text as status
+      `;
+
+      if (!merchant) {
+        throw new Error("Store deactivation did not update a merchant row.");
+      }
+
+      await writeAuditLogBestEffort(sql, {
+        action: "store_deactivated",
+        actorType: "user",
+        actorUserId: context.userId,
+        merchantId: context.merchant.merchantId,
+        metadata: {
+          newStatus: merchant.status,
+          previousStatus: context.merchant.status,
+        },
+        resourceId: context.merchant.merchantId,
+        resourceType: "merchant",
+      });
+    });
 
     return {
       status: "deactivated",
@@ -3077,47 +3313,68 @@ export async function createApiKey(input: {
   const secret = createApiSecret(input.environment);
 
   try {
-    const [apiKey] = await database.sql<
-      {
-        created_at: string;
-        environment: "test" | "live";
-        id: string;
-        key_prefix: string;
-        last_four: string;
-        name: string;
-        scopes: string[];
-        status: string;
-      }[]
-    >`
-      insert into api_keys (
-        merchant_id,
-        environment,
-        name,
-        key_prefix,
-        secret_hash,
-        last_four,
-        status,
-        created_by_user_id
-      ) values (
-        ${context.merchant.merchantId},
-        ${input.environment},
-        ${name},
-        ${secret.keyPrefix},
-        ${secret.hash},
-        ${secret.lastFour},
-        'active',
-        ${context.userId}
-      )
-      returning
-        id::text as id,
-        environment::text as environment,
-        name,
-        key_prefix,
-        last_four,
-        scopes,
-        status::text as status,
-        created_at::text
-    `;
+    const apiKey = await database.sql.begin(async (sql) => {
+      const [createdApiKey] = await sql<
+        {
+          created_at: string;
+          environment: "test" | "live";
+          id: string;
+          key_prefix: string;
+          last_four: string;
+          name: string;
+          scopes: string[];
+          status: string;
+        }[]
+      >`
+        insert into api_keys (
+          merchant_id,
+          environment,
+          name,
+          key_prefix,
+          secret_hash,
+          last_four,
+          status,
+          created_by_user_id
+        ) values (
+          ${context.merchant.merchantId},
+          ${input.environment},
+          ${name},
+          ${secret.keyPrefix},
+          ${secret.hash},
+          ${secret.lastFour},
+          'active',
+          ${context.userId}
+        )
+        returning
+          id::text as id,
+          environment::text as environment,
+          name,
+          key_prefix,
+          last_four,
+          scopes,
+          status::text as status,
+          created_at::text
+      `;
+
+      if (!createdApiKey) {
+        throw new Error("API key creation did not insert an API key row.");
+      }
+
+      await writeAuditLogBestEffort(sql, {
+        action: "api_key_created",
+        actorType: "user",
+        actorUserId: context.userId,
+        merchantId: context.merchant.merchantId,
+        metadata: {
+          environment: createdApiKey.environment,
+          name: createdApiKey.name,
+        },
+        resourceId: createdApiKey.id,
+        resourceType: "api_key",
+      });
+
+      return createdApiKey;
+    });
 
     return {
       apiKey: {
@@ -3148,57 +3405,97 @@ export async function revokeApiKey(
   },
   dependencies: RevokeApiKeyDependencies = {
     getMerchantContext,
-    updateOwnedApiKey: async ({ apiKeyId, merchantId }) => {
+    runTransaction: async <T>(callback: (sql: AuditSql) => Promise<T>) => {
       const database = await connectToDatabase();
 
       try {
-        const [apiKey] = await database.sql<
-          {
-            created_at: string;
-            environment: "test" | "live";
-            id: string;
-            key_prefix: string;
-            last_four: string;
-            last_used_at: string | null;
-            name: string;
-            scopes: string[];
-            status: string;
-          }[]
-        >`
-          update api_keys
-          set
-            status = 'revoked',
-            revoked_at = coalesce(revoked_at, now())
-          where id = ${apiKeyId}
-            and merchant_id = ${merchantId}
-          returning
-            id::text as id,
-            environment::text as environment,
-            name,
-            key_prefix,
-            last_four,
-            scopes,
-            status::text as status,
-            last_used_at::text,
-            created_at::text
-        `;
-
-        return apiKey ?? null;
+        // The postgres client unwraps array results from begin(); this callback
+        // returns domain objects, so preserve its declared generic result.
+        return (await database.sql.begin(callback)) as T;
       } finally {
         await database.release();
       }
     },
+    updateOwnedApiKey: async ({ apiKeyId, merchantId, sql }) => {
+      if (!sql) {
+        throw new Error(
+          `The revoke transaction was not provided for API key ${apiKeyId} and merchant ${merchantId}.`,
+        );
+      }
+
+      const [apiKey] = await sql<
+        {
+          created_at: string;
+          environment: "test" | "live";
+          id: string;
+          key_prefix: string;
+          last_four: string;
+          last_used_at: string | null;
+          name: string;
+          scopes: string[];
+          status: string;
+        }[]
+      >`
+        update api_keys
+        set
+          status = 'revoked',
+          revoked_at = coalesce(revoked_at, now())
+        where id = ${apiKeyId}
+          and merchant_id = ${merchantId}
+        returning
+          id::text as id,
+          environment::text as environment,
+          name,
+          key_prefix,
+          last_four,
+          scopes,
+          status::text as status,
+          last_used_at::text,
+          created_at::text
+      `;
+
+      return apiKey ?? null;
+    },
   },
 ): Promise<ApiKeyListItem> {
   const context = await dependencies.getMerchantContext();
-  const apiKey = await dependencies.updateOwnedApiKey({
-    apiKeyId: input.apiKeyId,
-    merchantId: context.merchant.merchantId,
-  });
 
-  if (!apiKey) {
-    throw new Error("API key not found for this merchant.");
-  }
+  const executeMutation = async (sql?: AuditSql) => {
+    const apiKey = await dependencies.updateOwnedApiKey({
+      apiKeyId: input.apiKeyId,
+      merchantId: context.merchant.merchantId,
+      ...(sql ? { sql } : {}),
+    });
+
+    if (!apiKey) {
+      throw new Error("API key not found for this merchant.");
+    }
+
+    const auditInput: AuditLogInput = {
+      action: "api_key_revoked",
+      actorType: "user",
+      actorUserId: context.userId,
+      merchantId: context.merchant.merchantId,
+      metadata: {
+        environment: apiKey.environment,
+        name: apiKey.name,
+      },
+      resourceId: apiKey.id,
+      resourceType: "api_key",
+    };
+
+    if (sql) {
+      await writeAuditLogBestEffort(sql, auditInput);
+    } else if (dependencies.recordAuditLog) {
+      await dependencies.recordAuditLog(auditInput);
+    }
+
+    return apiKey;
+  };
+
+  const apiKey = dependencies.runTransaction
+    ? await dependencies.runTransaction(executeMutation)
+    : await executeMutation();
 
   return {
     createdAt: apiKey.created_at,

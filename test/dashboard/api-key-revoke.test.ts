@@ -18,6 +18,7 @@ describe("revokeApiKey", () => {
       scopes: ["checkouts:create", "payments:read"],
       status: "revoked",
     }));
+    const recordAuditLog = mock(async () => undefined);
 
     const result = await revokeApiKey(
       {
@@ -27,7 +28,9 @@ describe("revokeApiKey", () => {
         getMerchantContext: async () =>
           ({
             merchant: { merchantId: "merchant_123" },
+            userId: "user_123",
           }) as never,
+        recordAuditLog,
         updateOwnedApiKey,
       },
     );
@@ -36,6 +39,19 @@ describe("revokeApiKey", () => {
     expect(updateOwnedApiKey.mock.calls[0]?.[0]).toEqual({
       apiKeyId: "key_123",
       merchantId: "merchant_123",
+    });
+    expect(recordAuditLog).toHaveBeenCalledTimes(1);
+    expect(recordAuditLog.mock.calls[0]?.[0]).toEqual({
+      action: "api_key_revoked",
+      actorType: "user",
+      actorUserId: "user_123",
+      merchantId: "merchant_123",
+      metadata: {
+        environment: "test",
+        name: "Primary key",
+      },
+      resourceId: "key_123",
+      resourceType: "api_key",
     });
     expect(result).toEqual({
       createdAt: "2026-07-09T00:00:00.000Z",

@@ -17,10 +17,9 @@ The current `outpay` repository is a Next.js 16 App Router frontend prototype wi
 
 Files:
 
-- `src/views/AuthOnboarding.tsx`
-- `src/views/InvalidWalletError.tsx`
+- `src/views/AuthScreens.tsx`
 - `src/app/auth/page.tsx`
-- `src/app/onboarding/wallet-error/page.tsx`
+- `src/app/onboarding/page.tsx`
 
 Observed features:
 
@@ -472,7 +471,7 @@ Database support required:
 ### Table: `wallet_change_requests`
 
 - Purpose: Audit wallet changes because mistakes are irreversible.
-- Justified by: `src/views/Settings.tsx`, `src/views/InvalidWalletError.tsx`
+- Justified by: `src/views/Settings.tsx`, `src/views/AuthScreens.tsx`
 
 | Column | Type | Required | Default | Notes |
 |---|---|---:|---|---|
