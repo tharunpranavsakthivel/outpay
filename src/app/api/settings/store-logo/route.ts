@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   uploadStoreLogo,
@@ -19,7 +20,7 @@ import {
  * the onboarding flow (after the merchant is created) and Settings > Store
  * profile.
  */
-export async function POST(request: Request) {
+async function uploadStoreLogo(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -77,3 +78,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/settings/store-logo POST",
+  uploadStoreLogo,
+);

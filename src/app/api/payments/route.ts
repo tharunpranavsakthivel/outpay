@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getPaymentsPageData,
@@ -13,7 +14,7 @@ import {
 /**
  * Merchant payments ledger API with server-side filtering and pagination.
  */
-export async function GET(request: Request) {
+async function getPayments(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -63,3 +64,5 @@ export async function GET(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging("/api/payments GET", getPayments);

@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   createDashboardCheckout,
   getCheckoutListPageData,
@@ -14,7 +15,7 @@ import {
 /**
  * Checkout collection API for listing and creating merchant checkout sessions.
  */
-export async function GET() {
+async function getCheckouts() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -48,7 +49,7 @@ export async function GET() {
 /**
  * Creates a new checkout session and payment intent from dashboard form input.
  */
-export async function POST(request: Request) {
+async function createCheckout(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -92,3 +93,9 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging("/api/checkouts GET", getCheckouts);
+export const POST = withRequestLogging(
+  "/api/checkouts POST",
+  createCheckout,
+);

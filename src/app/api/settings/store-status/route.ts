@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   deactivateStore,
   getCurrentMerchantIdForRateLimit,
@@ -13,7 +14,7 @@ import {
 /**
  * Merchant lifecycle API for store-wide status mutations.
  */
-export async function POST(request: Request) {
+async function updateStoreStatus(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -59,3 +60,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/settings/store-status POST",
+  updateStoreStatus,
+);

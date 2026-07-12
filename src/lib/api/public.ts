@@ -4,6 +4,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import {
+  logApiErrorResponse,
+  withRequestIdHeader,
+} from "@/lib/logging/logger";
 
 export interface PublicApiErrorDetail {
   field?: string;
@@ -92,6 +96,7 @@ export function getPublicApiRequestId(request: Request) {
  * - message: Human-readable message.
  * - details: Optional validation or conflict detail list.
  * - headers: Optional response headers such as `Retry-After`.
+ * - error: Optional caught exception to include in the server-side log.
  *
  * Returns:
  * - JSON response with the shared error envelope.
@@ -103,11 +108,20 @@ export function publicApiError(
   message: string,
   details: PublicApiErrorDetail[] = [],
   headers?: HeadersInit,
+  error?: unknown,
 ) {
+  logApiErrorResponse({
+    err: error,
+    error_code: code,
+    request_id: requestId,
+    status,
+  });
+
   const responseHeaders = new Headers(headers);
   responseHeaders.set("x-request-id", requestId);
 
-  return Response.json(
+  return withRequestIdHeader(
+    Response.json(
     {
       error: {
         code,
@@ -120,6 +134,8 @@ export function publicApiError(
       headers: responseHeaders,
       status,
     },
+    ),
+    requestId,
   );
 }
 

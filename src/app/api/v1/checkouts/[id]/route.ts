@@ -3,6 +3,7 @@ import {
   publicApiError,
   publicApiJson,
 } from "@/lib/api/public";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { getMerchantCheckoutStatus } from "@/lib/dashboard/server";
 import {
@@ -15,7 +16,7 @@ import {
 /**
  * Public v1 checkout-read endpoint authenticated by merchant API keys.
  */
-export async function GET(
+async function getApiCheckout(
   request: Request,
   context: RouteContext<"/api/v1/checkouts/[id]">,
 ) {
@@ -100,3 +101,8 @@ export async function GET(
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/v1/checkouts/[id] GET",
+  getApiCheckout,
+);

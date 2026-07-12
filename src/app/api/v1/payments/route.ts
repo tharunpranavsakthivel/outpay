@@ -3,6 +3,7 @@ import {
   publicApiError,
   publicApiJson,
 } from "@/lib/api/public";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { listMerchantPayments } from "@/lib/dashboard/server";
 import {
@@ -15,7 +16,7 @@ import {
 /**
  * Public v1 payment-list endpoint authenticated by merchant API keys.
  */
-export async function GET(request: Request) {
+async function getApiPayments(request: Request) {
   const requestId = getPublicApiRequestId(request);
 
   try {
@@ -89,3 +90,8 @@ export async function GET(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/v1/payments GET",
+  getApiPayments,
+);

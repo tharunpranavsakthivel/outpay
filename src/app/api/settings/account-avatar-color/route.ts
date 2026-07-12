@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   updateAccountAvatarColor,
@@ -13,7 +14,7 @@ import {
 /**
  * Persists the signed-in user's initials-avatar background color.
  */
-export async function PATCH(request: Request) {
+async function updateAccountAvatarColor(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -48,3 +49,8 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export const PATCH = withRequestLogging(
+  "/api/settings/account-avatar-color PATCH",
+  updateAccountAvatarColor,
+);

@@ -5,6 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { connectToDatabase } from "@/lib/database/client";
 import { normalizeAlchemyAddressActivityPayload } from "@/lib/payments/normalize-event";
 import {
@@ -34,7 +35,7 @@ const rateLimitBuckets = new Map<
  * - `401` when the signature is invalid.
  * - `429` when the caller exceeds the provider-specific intake rate limit.
  */
-export async function POST(request: Request) {
+async function receiveAlchemyWebhook(request: Request) {
   const rawBody = await request.text();
   const signatureHeader = request.headers.get("x-alchemy-signature");
   const sourceIp = readSourceIp(request);
@@ -125,6 +126,11 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/internal/provider-webhooks/alchemy POST",
+  receiveAlchemyWebhook,
+);
 
 /**
  * Persists a raw Alchemy provider event idempotently.

@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getAccountSettingsData,
   getCurrentMerchantIdForRateLimit,
@@ -14,7 +15,7 @@ import {
 /**
  * Account profile API backed by user_profiles.
  */
-export async function GET() {
+async function getAccountProfile() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -47,7 +48,7 @@ export async function GET() {
 /**
  * Updates mutable user profile fields used by the dashboard.
  */
-export async function PATCH(request: Request) {
+async function updateAccountProfile(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -84,3 +85,12 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/settings/account-profile GET",
+  getAccountProfile,
+);
+export const PATCH = withRequestLogging(
+  "/api/settings/account-profile PATCH",
+  updateAccountProfile,
+);

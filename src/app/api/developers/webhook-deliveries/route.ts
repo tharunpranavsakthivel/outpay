@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
@@ -13,7 +14,7 @@ import {
 /**
  * Developers delivery history API backed by webhook_events and attempts.
  */
-export async function GET() {
+async function getWebhookDeliveries() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -48,3 +49,8 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/developers/webhook-deliveries GET",
+  getWebhookDeliveries,
+);

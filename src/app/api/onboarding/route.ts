@@ -4,6 +4,7 @@
  */
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { completeMerchantOnboarding } from "@/lib/dashboard/server";
 import { registerPrimaryWalletWithAlchemy } from "@/lib/providers/alchemy";
 import {
@@ -14,7 +15,7 @@ import {
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
 
-export async function POST(request: Request) {
+async function completeOnboarding(request: Request) {
   try {
     const rateLimit = await consumeRateLimit({
       key: buildRateLimitKey({
@@ -85,3 +86,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/onboarding POST",
+  completeOnboarding,
+);

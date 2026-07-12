@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   createApiKey,
   getCurrentMerchantIdForRateLimit,
@@ -14,7 +15,7 @@ import {
 /**
  * Developers API key collection route for listing and creating keys.
  */
-export async function GET() {
+async function getApiKeys() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -51,7 +52,7 @@ export async function GET() {
 /**
  * Creates a new one-time-reveal API secret mapped to api_keys.
  */
-export async function POST(request: Request) {
+async function createApiKey(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -101,3 +102,12 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/developers/api-keys GET",
+  getApiKeys,
+);
+export const POST = withRequestLogging(
+  "/api/developers/api-keys POST",
+  createApiKey,
+);

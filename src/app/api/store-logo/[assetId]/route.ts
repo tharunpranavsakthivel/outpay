@@ -1,4 +1,5 @@
 import { getStoreLogoObject } from "@/lib/dashboard/server";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   buildRateLimitKey,
   consumeRateLimit,
@@ -11,7 +12,7 @@ import {
  * Streams a store logo asset. Each asset ID is unique per upload, so the
  * response can be cached forever.
  */
-export async function GET(
+async function getStoreLogo(
   request: Request,
   { params }: { params: Promise<{ assetId: string }> },
 ) {
@@ -46,3 +47,8 @@ export async function GET(
     },
   });
 }
+
+export const GET = withRequestLogging(
+  "/api/store-logo/[assetId] GET",
+  getStoreLogo,
+);

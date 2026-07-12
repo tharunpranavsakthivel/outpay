@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   revokeApiKey,
@@ -13,7 +14,7 @@ import {
 /**
  * Developers API key mutation route for merchant-scoped lifecycle actions.
  */
-export async function PATCH(
+async function updateApiKey(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -68,3 +69,8 @@ export async function PATCH(
     return jsonError(status, "API_KEY_UPDATE_FAILED", message);
   }
 }
+
+export const PATCH = withRequestLogging(
+  "/api/developers/api-keys/[id] PATCH",
+  updateApiKey,
+);

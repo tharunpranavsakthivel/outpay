@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { getPublicCheckoutData } from "@/lib/dashboard/server";
 import {
   buildRateLimitKey,
@@ -11,7 +12,7 @@ import {
 /**
  * Public checkout status API used by the hosted checkout page.
  */
-export async function GET(
+async function getPublicCheckout(
   request: Request,
   context: RouteContext<"/api/public/checkouts/[id]">,
 ) {
@@ -44,3 +45,8 @@ export async function GET(
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/public/checkouts/[id] GET",
+  getPublicCheckout,
+);

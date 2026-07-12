@@ -8,6 +8,7 @@ import {
   publicApiJson,
   validateCreateCheckoutApiRequest,
 } from "@/lib/api/public";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { createCheckoutForMerchant } from "@/lib/dashboard/server";
 import { connectToDatabase } from "@/lib/database/client";
@@ -35,7 +36,7 @@ interface CreateCheckoutResponseBody {
 /**
  * Public v1 checkout-creation endpoint authenticated by merchant API keys.
  */
-export async function POST(request: Request) {
+async function createApiCheckout(request: Request) {
   const requestId = getPublicApiRequestId(request);
 
   try {
@@ -220,3 +221,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/v1/checkouts POST",
+  createApiCheckout,
+);

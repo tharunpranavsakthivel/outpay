@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getStoreSettingsData,
@@ -14,7 +15,7 @@ import {
 /**
  * Merchant store profile API for reading and updating merchants table fields.
  */
-export async function GET() {
+async function getStoreProfile() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -47,7 +48,7 @@ export async function GET() {
 /**
  * Updates merchant profile fields that map directly to the schema.
  */
-export async function PATCH(request: Request) {
+async function updateStoreProfileHandler(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -92,3 +93,12 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/settings/store-profile GET",
+  getStoreProfile,
+);
+export const PATCH = withRequestLogging(
+  "/api/settings/store-profile PATCH",
+  updateStoreProfileHandler,
+);

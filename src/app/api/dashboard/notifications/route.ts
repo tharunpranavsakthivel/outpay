@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getDashboardPageData,
@@ -14,7 +15,7 @@ import {
 /**
  * Dashboard notifications API for listing and marking items as read.
  */
-export async function GET() {
+async function getNotifications() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -51,7 +52,7 @@ export async function GET() {
 /**
  * Marks the current merchant user's unread notifications as read.
  */
-export async function POST(request: Request) {
+async function markNotificationsRead(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -95,3 +96,12 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/dashboard/notifications GET",
+  getNotifications,
+);
+export const POST = withRequestLogging(
+  "/api/dashboard/notifications POST",
+  markNotificationsRead,
+);

@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   deactivateCheckout,
   getCurrentMerchantIdForRateLimit,
@@ -13,7 +14,7 @@ import {
 /**
  * Single-checkout mutation API for status changes such as deactivation.
  */
-export async function PATCH(
+async function patchCheckout(
   request: Request,
   context: RouteContext<"/api/checkouts/[checkoutRef]">,
 ) {
@@ -57,3 +58,8 @@ export async function PATCH(
     );
   }
 }
+
+export const PATCH = withRequestLogging(
+  "/api/checkouts/[checkoutRef] PATCH",
+  patchCheckout,
+);

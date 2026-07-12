@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import { getPublicReceiptData } from "@/lib/dashboard/server";
 import {
   buildRateLimitKey,
@@ -11,7 +12,7 @@ import {
 /**
  * Public receipt API used by the hosted receipt page.
  */
-export async function GET(
+async function getPublicReceipt(
   request: Request,
   context: RouteContext<"/api/public/receipts/[id]">,
 ) {
@@ -43,3 +44,8 @@ export async function GET(
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/public/receipts/[id] GET",
+  getPublicReceipt,
+);

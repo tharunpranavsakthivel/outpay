@@ -1,4 +1,5 @@
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
@@ -16,7 +17,7 @@ import {
  * Developers webhook endpoint API for reading, configuring, and testing the
  * merchant's signed webhook destination.
  */
-export async function GET() {
+async function getWebhookEndpoint() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -55,7 +56,7 @@ export async function GET() {
 /**
  * Upserts the live webhook endpoint and rotates its secret.
  */
-export async function PUT(request: Request) {
+async function updateWebhookEndpoint(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -95,7 +96,7 @@ export async function PUT(request: Request) {
 /**
  * Queues a test webhook delivery entry for the current merchant.
  */
-export async function POST() {
+async function sendWebhookTest() {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -128,3 +129,16 @@ export async function POST() {
     );
   }
 }
+
+export const GET = withRequestLogging(
+  "/api/developers/webhook-endpoint GET",
+  getWebhookEndpoint,
+);
+export const PUT = withRequestLogging(
+  "/api/developers/webhook-endpoint PUT",
+  updateWebhookEndpoint,
+);
+export const POST = withRequestLogging(
+  "/api/developers/webhook-endpoint POST",
+  sendWebhookTest,
+);

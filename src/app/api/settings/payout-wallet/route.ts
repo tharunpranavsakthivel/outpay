@@ -3,6 +3,7 @@
  */
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
+import { withRequestLogging } from "@/lib/logging/logger";
 import {
   getCurrentMerchantIdForRateLimit,
   replacePrimaryWallet,
@@ -15,7 +16,7 @@ import {
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
 
-export async function POST(request: Request) {
+async function updatePayoutWallet(request: Request) {
   try {
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
@@ -83,3 +84,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const POST = withRequestLogging(
+  "/api/settings/payout-wallet POST",
+  updatePayoutWallet,
+);
