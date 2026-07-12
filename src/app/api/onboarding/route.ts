@@ -6,9 +6,33 @@ import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
 import { completeMerchantOnboarding } from "@/lib/dashboard/server";
 import { registerPrimaryWalletWithAlchemy } from "@/lib/providers/alchemy";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  getClientIp,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.onboarding,
+        scopeType: "ip",
+        scopeValue: getClientIp(request),
+      }),
+      policy: RATE_LIMIT_POLICIES.onboarding,
+      routeId: "/api/onboarding POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.onboarding,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       storeDescription?: string;
       storeName?: string;

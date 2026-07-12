@@ -10,6 +10,7 @@ import {
   truncateIdentifier,
 } from "../lib/dashboard/format";
 import type { PublicReceiptData } from "../lib/dashboard/types";
+import { NON_CUSTODIAL_DISCLAIMER } from "../lib/legal/compliance";
 
 /**
  * Public receipt page backed by payments, checkout_sessions, and
@@ -142,8 +143,7 @@ export default function PaymentReceipt({
           </div>
 
           <div className="text-[11.5px] text-foreground-lighter text-center leading-[1.6]">
-            This payment went directly from the customer wallet to the
-            merchant&apos;s wallet. Outpay never held the funds.
+            {NON_CUSTODIAL_DISCLAIMER}
           </div>
 
           {initialData.redirectUrl && (

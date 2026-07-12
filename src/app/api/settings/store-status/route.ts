@@ -1,11 +1,38 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { deactivateStore } from "@/lib/dashboard/server";
+import {
+  deactivateStore,
+  getCurrentMerchantIdForRateLimit,
+} from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Merchant lifecycle API for store-wide status mutations.
  */
 export async function POST(request: Request) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/settings/store-status POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       action?: string;
       confirmationText?: string;

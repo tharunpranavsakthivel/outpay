@@ -11,6 +11,12 @@ import {
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { createCheckoutForMerchant } from "@/lib/dashboard/server";
 import { connectToDatabase } from "@/lib/database/client";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createPublicApiRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 interface CreateCheckoutResponseBody {
   amount: string;
@@ -51,6 +57,24 @@ export async function POST(request: Request) {
         "FORBIDDEN",
         "This API key does not include the checkouts:create scope.",
       );
+    }
+
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.checkoutCreate,
+        scopeType: "merchant",
+        scopeValue: auth.merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.checkoutCreate,
+      routeId: "/api/v1/checkouts POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createPublicApiRateLimitError({
+        policy: RATE_LIMIT_POLICIES.checkoutCreate,
+        requestId,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      });
     }
 
     const body = validateCreateCheckoutApiRequest(await request.json());

@@ -5,6 +5,12 @@ import {
 } from "@/lib/api/public";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { listMerchantPayments } from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createPublicApiRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Public v1 payment-list endpoint authenticated by merchant API keys.
@@ -31,6 +37,24 @@ export async function GET(request: Request) {
         "FORBIDDEN",
         "This API key does not include the payments:read scope.",
       );
+    }
+
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.paymentsList,
+        scopeType: "merchant",
+        scopeValue: auth.merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.paymentsList,
+      routeId: "/api/v1/payments GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createPublicApiRateLimitError({
+        policy: RATE_LIMIT_POLICIES.paymentsList,
+        requestId,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      });
     }
 
     const url = new URL(request.url);

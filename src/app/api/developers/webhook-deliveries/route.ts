@@ -1,11 +1,38 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { getDevelopersPageData } from "@/lib/dashboard/server";
+import {
+  getCurrentMerchantIdForRateLimit,
+  getDevelopersPageData,
+} from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Developers delivery history API backed by webhook_events and attempts.
  */
 export async function GET() {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/developers/webhook-deliveries GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const data = await getDevelopersPageData();
     return Response.json({
       lastWebhookPayload: data.lastWebhookPayload,

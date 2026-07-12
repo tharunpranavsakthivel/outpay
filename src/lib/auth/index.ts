@@ -57,6 +57,29 @@ function normalizeEmail(email: string) {
 }
 
 /**
+ * Normalizes a Better Auth additional-field value before mirroring it to the
+ * application profile table.
+ *
+ * Parameters:
+ * - value: Date or ISO string returned by the Better Auth adapter.
+ *
+ * Returns:
+ * - Valid Date instance, or `null` for an absent or invalid value.
+ */
+function normalizeLegalAcceptanceTimestamp(value: unknown): Date | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
+/**
  * Converts a Better Auth text user ID into a deterministic UUID for the
  * UUID-based merchant schema compatibility layer.
  *
@@ -140,6 +163,8 @@ async function getAuthUserRecord(userId: string): Promise<{
   email: string;
   image: string | null;
   name: string;
+  privacyAcceptedAt: Date | null;
+  termsAcceptedAt: Date | null;
   userId: string;
 } | null> {
   const database = await connectToDatabase();
@@ -150,6 +175,8 @@ async function getAuthUserRecord(userId: string): Promise<{
         email: string;
         image: string | null;
         name: string;
+        privacy_accepted_at: Date | null;
+        terms_accepted_at: Date | null;
         user_id: string;
       }[]
     >`
@@ -157,6 +184,8 @@ async function getAuthUserRecord(userId: string): Promise<{
         email,
         image,
         name,
+        "privacy_accepted_at" as privacy_accepted_at,
+        "terms_accepted_at" as terms_accepted_at,
         id as user_id
       from "user"
       where id = ${userId}
@@ -168,6 +197,8 @@ async function getAuthUserRecord(userId: string): Promise<{
           email: rows[0].email,
           image: rows[0].image,
           name: rows[0].name,
+          privacyAcceptedAt: rows[0].privacy_accepted_at,
+          termsAcceptedAt: rows[0].terms_accepted_at,
           userId: rows[0].user_id,
         }
       : null;
@@ -190,6 +221,8 @@ async function upsertProfileCompatibilityRecord(params: {
   email: string;
   image: string | null | undefined;
   name: string;
+  privacyAcceptedAt?: Date | null;
+  termsAcceptedAt?: Date | null;
   userId: string;
 }): Promise<void> {
   const profileUuid = await resolveProfileUuid({
@@ -211,6 +244,8 @@ async function upsertProfileCompatibilityRecord(params: {
         email,
         full_name,
         avatar_url,
+        privacy_accepted_at,
+        terms_accepted_at,
         updated_at
       )
       values (
@@ -218,6 +253,8 @@ async function upsertProfileCompatibilityRecord(params: {
         ${normalizeEmail(params.email)},
         ${params.name},
         ${params.image ?? null},
+        ${params.privacyAcceptedAt ?? null},
+        ${params.termsAcceptedAt ?? null},
         now()
       )
       on conflict (id) do update
@@ -225,6 +262,14 @@ async function upsertProfileCompatibilityRecord(params: {
         email = excluded.email,
         full_name = excluded.full_name,
         avatar_url = excluded.avatar_url,
+        privacy_accepted_at = coalesce(
+          excluded.privacy_accepted_at,
+          user_profiles.privacy_accepted_at
+        ),
+        terms_accepted_at = coalesce(
+          excluded.terms_accepted_at,
+          user_profiles.terms_accepted_at
+        ),
         updated_at = now()
     `;
   } finally {
@@ -272,6 +317,24 @@ export const auth = betterAuth({
     generateId: "uuid",
     type: "postgres",
   },
+  user: {
+    additionalFields: {
+      privacyAcceptedAt: {
+        fieldName: "privacy_accepted_at",
+        input: true,
+        required: false,
+        returned: false,
+        type: "date",
+      },
+      termsAcceptedAt: {
+        fieldName: "terms_accepted_at",
+        input: true,
+        required: false,
+        returned: false,
+        type: "date",
+      },
+    },
+  },
   databaseHooks: {
     session: {
       create: {
@@ -287,6 +350,12 @@ export const auth = betterAuth({
             email: user.email,
             image: user.image,
             name: user.name,
+            privacyAcceptedAt: normalizeLegalAcceptanceTimestamp(
+              user.privacyAcceptedAt,
+            ),
+            termsAcceptedAt: normalizeLegalAcceptanceTimestamp(
+              user.termsAcceptedAt,
+            ),
             userId: user.id,
           });
         },

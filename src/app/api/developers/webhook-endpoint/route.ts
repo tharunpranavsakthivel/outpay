@@ -1,9 +1,16 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
+  getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
   queueTestWebhookDelivery,
   upsertWebhookEndpoint,
 } from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Developers webhook endpoint API for reading, configuring, and testing the
@@ -11,6 +18,24 @@ import {
  */
 export async function GET() {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/developers/webhook-endpoint GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const data = await getDevelopersPageData();
 
     return Response.json({
@@ -32,6 +57,24 @@ export async function GET() {
  */
 export async function PUT(request: Request) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/developers/webhook-endpoint PUT",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as { url?: string };
     return Response.json(
       await upsertWebhookEndpoint({
@@ -54,6 +97,24 @@ export async function PUT(request: Request) {
  */
 export async function POST() {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.webhookTest,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.webhookTest,
+      routeId: "/api/developers/webhook-endpoint POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.webhookTest,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     return Response.json(await queueTestWebhookDelivery(), {
       status: 202,
     });

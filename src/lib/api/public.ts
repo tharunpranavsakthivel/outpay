@@ -91,6 +91,7 @@ export function getPublicApiRequestId(request: Request) {
  * - code: Stable application error code.
  * - message: Human-readable message.
  * - details: Optional validation or conflict detail list.
+ * - headers: Optional response headers such as `Retry-After`.
  *
  * Returns:
  * - JSON response with the shared error envelope.
@@ -101,7 +102,11 @@ export function publicApiError(
   code: string,
   message: string,
   details: PublicApiErrorDetail[] = [],
+  headers?: HeadersInit,
 ) {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("x-request-id", requestId);
+
   return Response.json(
     {
       error: {
@@ -112,9 +117,7 @@ export function publicApiError(
       },
     },
     {
-      headers: {
-        "x-request-id": requestId,
-      },
+      headers: responseHeaders,
       status,
     },
   );

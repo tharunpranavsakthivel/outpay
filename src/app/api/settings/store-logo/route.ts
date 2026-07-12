@@ -1,5 +1,14 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { uploadStoreLogo } from "@/lib/dashboard/server";
+import {
+  getCurrentMerchantIdForRateLimit,
+  uploadStoreLogo,
+} from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 import {
   ALLOWED_LOGO_CONTENT_TYPES,
   LOGO_MAX_BYTES,
@@ -11,30 +20,48 @@ import {
  * profile.
  */
 export async function POST(request: Request) {
-  const formData = await request.formData();
-  const file = formData.get("file");
-
-  if (!(file instanceof File)) {
-    return jsonError(400, "FILE_REQUIRED", "Attach an image file to upload.");
-  }
-
-  if (!ALLOWED_LOGO_CONTENT_TYPES.has(file.type)) {
-    return jsonError(
-      415,
-      "UNSUPPORTED_FILE_TYPE",
-      "Upload a PNG, JPEG, WebP, or SVG image.",
-    );
-  }
-
-  if (file.size > LOGO_MAX_BYTES) {
-    return jsonError(
-      413,
-      "FILE_TOO_LARGE",
-      `Images must be ${LOGO_MAX_BYTES / (1024 * 1024)}MB or smaller.`,
-    );
-  }
-
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/settings/store-logo POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
+    const formData = await request.formData();
+    const file = formData.get("file");
+
+    if (!(file instanceof File)) {
+      return jsonError(400, "FILE_REQUIRED", "Attach an image file to upload.");
+    }
+
+    if (!ALLOWED_LOGO_CONTENT_TYPES.has(file.type)) {
+      return jsonError(
+        415,
+        "UNSUPPORTED_FILE_TYPE",
+        "Upload a PNG, JPEG, WebP, or SVG image.",
+      );
+    }
+
+    if (file.size > LOGO_MAX_BYTES) {
+      return jsonError(
+        413,
+        "FILE_TOO_LARGE",
+        `Images must be ${LOGO_MAX_BYTES / (1024 * 1024)}MB or smaller.`,
+      );
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
     const { logoUrl } = await uploadStoreLogo({
       buffer,

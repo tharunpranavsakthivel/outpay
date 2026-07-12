@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NON_CUSTODIAL_DISCLAIMER } from "../../lib/legal/compliance";
 
 const FOOTER_COLUMNS = [
   {
@@ -69,8 +70,11 @@ export function MarketingFooter() {
           ))}
         </div>
         <div className="flex items-center justify-between border-t border-border pt-6">
-          <div className="text-xs text-foreground-lighter">
-            © 2026 Outpay. Non-custodial checkout for USDC on Base.
+          <div className="flex flex-col gap-2 text-xs text-foreground-lighter">
+            <div>© 2026 Outpay. Non-custodial checkout for USDC on Base.</div>
+            <div className="max-w-[680px] leading-[1.6]">
+              {NON_CUSTODIAL_DISCLAIMER}
+            </div>
           </div>
         </div>
       </div>

@@ -1,14 +1,39 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
   getAccountSettingsData,
+  getCurrentMerchantIdForRateLimit,
   updateAccountProfile,
 } from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Account profile API backed by user_profiles.
  */
 export async function GET() {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/settings/account-profile GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     return Response.json(await getAccountSettingsData());
   } catch (error) {
     return jsonError(
@@ -24,6 +49,24 @@ export async function GET() {
  */
 export async function PATCH(request: Request) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/settings/account-profile PATCH",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       fullName?: string;
     };

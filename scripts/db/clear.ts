@@ -9,7 +9,17 @@
  * applied.
  */
 
+import { createInterface } from "node:readline/promises";
+
 import { connectToDatabase } from "../../src/lib/database/client";
+import {
+  type DatabaseConnectionCandidate,
+  resolveDatabaseConnectionCandidates,
+} from "../../src/lib/database/config";
+
+const PRODUCTION_OVERRIDE_FLAG = "--i-understand-this-is-production";
+const DEFAULT_PRODUCTION_DB_HOST_PATTERN =
+  "(^|\\.)(railway\\.(app|internal)|rlwy\\.net)$";
 
 const TARGET_SCHEMAS = ["auth", "public"] as const;
 const MIGRATION_TABLE = {
@@ -27,6 +37,17 @@ interface TableRowCount {
 interface ClearCommandOptions {
   execute: boolean;
   includeMigrations: boolean;
+  understandProduction: boolean;
+}
+
+interface DatabaseTarget {
+  databaseName: string;
+  host: string;
+}
+
+interface ExecutionSafetyContext {
+  productionTargets: DatabaseTarget[];
+  targets: DatabaseTarget[];
 }
 
 class ClearCommandError extends Error {
@@ -52,6 +73,7 @@ function parseOptions(argv: string[]): ClearCommandOptions {
   const options: ClearCommandOptions = {
     execute: false,
     includeMigrations: false,
+    understandProduction: false,
   };
 
   for (const argument of argv) {
@@ -62,14 +84,222 @@ function parseOptions(argv: string[]): ClearCommandOptions {
       case "--include-migrations":
         options.includeMigrations = true;
         break;
+      case PRODUCTION_OVERRIDE_FLAG:
+        options.understandProduction = true;
+        break;
       default:
         throw new ClearCommandError(
-          `Unsupported flag "${argument}". Use --execute and optionally --include-migrations.`,
+          `Unsupported flag "${argument}". Use --execute, optionally --include-migrations, and only use ${PRODUCTION_OVERRIDE_FLAG} for an intentional production operation.`,
         );
     }
   }
 
   return options;
+}
+
+/**
+ * Parses a PostgreSQL connection target without exposing credentials.
+ *
+ * Parameters:
+ * - candidate: Configured database connection candidate.
+ *
+ * Returns:
+ * - Hostname and database name for safety checks and confirmation prompts.
+ *
+ * Throws:
+ * - `ClearCommandError` when the connection URL cannot be inspected safely.
+ */
+function parseDatabaseTarget(
+  candidate: DatabaseConnectionCandidate,
+): DatabaseTarget {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(candidate.url);
+  } catch {
+    throw new ClearCommandError(
+      `Refusing to execute because ${candidate.source} is not a parseable PostgreSQL URL.`,
+    );
+  }
+
+  if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
+    throw new ClearCommandError(
+      `Refusing to execute because ${candidate.source} does not use a PostgreSQL URL.`,
+    );
+  }
+
+  let databaseName: string;
+
+  try {
+    databaseName = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ""));
+  } catch {
+    throw new ClearCommandError(
+      `Refusing to execute because ${candidate.source} contains an invalid encoded database name.`,
+    );
+  }
+
+  if (!parsedUrl.hostname || !databaseName) {
+    throw new ClearCommandError(
+      `Refusing to execute because ${candidate.source} does not contain both a database host and database name.`,
+    );
+  }
+
+  return {
+    databaseName,
+    host: parsedUrl.hostname,
+  };
+}
+
+/**
+ * Builds the production-host matcher from the environment, using a conservative
+ * Railway default so production protection remains active when configuration is omitted.
+ *
+ * Returns:
+ * - Case-insensitive regular expression used to classify database hosts.
+ *
+ * Throws:
+ * - `ClearCommandError` when `PRODUCTION_DB_HOST_PATTERN` is not valid regex syntax.
+ */
+function getProductionHostPattern(): RegExp {
+  const pattern =
+    process.env.PRODUCTION_DB_HOST_PATTERN?.trim() ||
+    DEFAULT_PRODUCTION_DB_HOST_PATTERN;
+
+  try {
+    return new RegExp(pattern, "i");
+  } catch {
+    throw new ClearCommandError(
+      "Refusing to execute because PRODUCTION_DB_HOST_PATTERN is not a valid regular expression.",
+    );
+  }
+}
+
+/**
+ * Inspects every configured connection candidate before any database connection is opened.
+ *
+ * Returns:
+ * - Safety metadata for the configured targets.
+ *
+ * Throws:
+ * - `ClearCommandError` when candidates are invalid or point at different databases.
+ */
+function inspectExecutionTargets(): ExecutionSafetyContext {
+  let candidates: DatabaseConnectionCandidate[];
+
+  try {
+    candidates = resolveDatabaseConnectionCandidates();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ClearCommandError(`Refusing to execute: ${message}`);
+  }
+
+  const targets = candidates.map(parseDatabaseTarget);
+  const databaseNames = new Set(targets.map((target) => target.databaseName));
+
+  if (databaseNames.size !== 1) {
+    throw new ClearCommandError(
+      "Refusing to execute because configured database candidates point at different database names. Configure only the intended target before retrying.",
+    );
+  }
+
+  const productionHostPattern = getProductionHostPattern();
+  const productionTargets = targets.filter((target) =>
+    productionHostPattern.test(target.host),
+  );
+
+  return { productionTargets, targets };
+}
+
+/**
+ * Enforces the explicit production opt-in before a destructive operation.
+ *
+ * Parameters:
+ * - safety: Inspected database targets and production classifications.
+ * - understandProduction: Whether the exact production override flag was supplied.
+ *
+ * Throws:
+ * - `ClearCommandError` when a production-pattern host lacks the exact override flag.
+ */
+function enforceProductionGuard(
+  safety: ExecutionSafetyContext,
+  understandProduction: boolean,
+): void {
+  if (safety.productionTargets.length === 0 || understandProduction) {
+    return;
+  }
+
+  const hosts = safety.productionTargets
+    .map((target) => target.host)
+    .join(", ");
+  throw new ClearCommandError(
+    `Refusing to execute against production-pattern database host(s): ${hosts}. If this is intentional, rerun with the exact ${PRODUCTION_OVERRIDE_FLAG} flag and complete the database-name confirmation.`,
+  );
+}
+
+/**
+ * Prints the inspected target without logging credentials or connection strings.
+ *
+ * Parameters:
+ * - targets: Configured database targets.
+ */
+function printExecutionTargets(targets: DatabaseTarget[]): void {
+  console.log("Destructive database target");
+
+  for (const target of targets) {
+    console.log(`Host: ${target.host}`);
+    console.log(`Database: ${target.databaseName}`);
+  }
+}
+
+/**
+ * Requires an exact interactive database-name confirmation before truncation.
+ *
+ * Parameters:
+ * - targets: Configured database targets, which all share one database name.
+ *
+ * Throws:
+ * - `ClearCommandError` when no interactive terminal is available or the exact name is not entered.
+ */
+async function confirmDestructiveExecution(
+  targets: DatabaseTarget[],
+): Promise<void> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new ClearCommandError(
+      "Refusing to execute without an interactive terminal. Run the command directly and type the exact database name when prompted.",
+    );
+  }
+
+  const databaseName = targets[0]?.databaseName;
+
+  if (!databaseName) {
+    throw new ClearCommandError(
+      "Refusing to execute because the database name could not be confirmed.",
+    );
+  }
+
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  let enteredName: string;
+
+  try {
+    enteredName = await readline.question(
+      `Type the database name (${databaseName}) to confirm truncation: `,
+    );
+  } catch {
+    throw new ClearCommandError(
+      "Unable to read the database-name confirmation. No changes were applied.",
+    );
+  } finally {
+    readline.close();
+  }
+
+  if (enteredName.trim() !== databaseName) {
+    throw new ClearCommandError(
+      "Database-name confirmation did not match exactly. No changes were applied.",
+    );
+  }
 }
 
 /**
@@ -239,6 +469,13 @@ async function clearTables(tables: TableRowCount[]): Promise<void> {
  */
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
+  const executionSafety = options.execute ? inspectExecutionTargets() : null;
+
+  if (executionSafety) {
+    enforceProductionGuard(executionSafety, options.understandProduction);
+    printExecutionTargets(executionSafety.targets);
+  }
+
   const tables = await loadTableRowCounts(options.includeMigrations);
 
   printInventory(tables, options.includeMigrations);
@@ -250,6 +487,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!executionSafety) {
+    throw new ClearCommandError(
+      "Execution safety checks were not initialized.",
+    );
+  }
+
+  await confirmDestructiveExecution(executionSafety.targets);
   await clearTables(tables);
   console.log("Database tables cleared.");
 }

@@ -2,12 +2,14 @@ import { Check } from "lucide-react";
 
 /** Checkbox — 16x16, rounded-sm, filled foreground when checked. */
 export interface CheckboxProps {
+  ariaLabel?: string;
   checked: boolean;
   onChange?: (checked: boolean) => void;
   disabled?: boolean;
 }
 
 export function Checkbox({
+  ariaLabel,
   checked,
   onChange,
   disabled = false,
@@ -21,6 +23,7 @@ export function Checkbox({
     >
       <input
         type="checkbox"
+        aria-label={ariaLabel}
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange?.(event.target.checked)}

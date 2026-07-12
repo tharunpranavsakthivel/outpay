@@ -1,5 +1,14 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { revokeApiKey } from "@/lib/dashboard/server";
+import {
+  getCurrentMerchantIdForRateLimit,
+  revokeApiKey,
+} from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Developers API key mutation route for merchant-scoped lifecycle actions.
@@ -9,6 +18,24 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/developers/api-keys/[id] PATCH",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       action?: string;
     };

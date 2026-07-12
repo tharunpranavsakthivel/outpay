@@ -1,11 +1,39 @@
 import { jsonError } from "@/lib/dashboard/http";
-import { createApiKey, getDevelopersPageData } from "@/lib/dashboard/server";
+import {
+  createApiKey,
+  getCurrentMerchantIdForRateLimit,
+  getDevelopersPageData,
+} from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Developers API key collection route for listing and creating keys.
  */
 export async function GET() {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/developers/api-keys GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const data = await getDevelopersPageData();
     return Response.json({
       apiKeys: data.apiKeys,
@@ -25,6 +53,24 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.apiKeyCreate,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.apiKeyCreate,
+      routeId: "/api/developers/api-keys POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.apiKeyCreate,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       environment?: "test" | "live";
       name?: string;

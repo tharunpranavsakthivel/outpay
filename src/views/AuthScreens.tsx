@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useRef, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
+import { NON_CUSTODIAL_DISCLAIMER } from "@/lib/legal/compliance";
 import type { WalletSignatureProof } from "@/lib/wallet/browser-wallet";
 import { Button } from "../components/ui/Button";
 import {
@@ -23,6 +24,40 @@ import { WalletVerificationPanel } from "../components/wallet/WalletVerification
 const STEP_LABELS = ["Store details", "Wallet address", "Confirm"];
 const INLINE_ACTION_CLASS =
   "bg-transparent border-0 p-0 font-inherit text-foreground font-medium cursor-pointer underline underline-offset-2";
+
+/**
+ * Normalizes rate-limit errors from Better Auth into a user-facing message
+ * that includes the concrete retry window when the server provides one.
+ *
+ * Parameters:
+ * - error: Error-like object returned by Better Auth or thrown by the fetch
+ *   client.
+ * - fallbackMessage: Generic message used when the server did not include one.
+ *
+ * Returns:
+ * - Human-readable error message for auth forms.
+ */
+function getAuthErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      error?: { message?: string };
+      message?: string;
+      status?: number;
+    };
+    const message =
+      candidate.error?.message?.trim() || candidate.message?.trim() || "";
+
+    if (candidate.status === 429) {
+      return message || fallbackMessage;
+    }
+
+    if (message) {
+      return message;
+    }
+  }
+
+  return fallbackMessage;
+}
 
 /**
  * Builds a default Better Auth profile name from the signup email when the UI
@@ -181,6 +216,7 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
@@ -190,14 +226,21 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
       setErrorMessage(null);
 
       try {
-        const response = await authClient.signUp.email({
+        const signupPayload = {
           email,
           name: buildSignupName(email),
           password,
-        });
+          privacyAccepted: legalAccepted,
+          termsAccepted: legalAccepted,
+        } as Parameters<typeof authClient.signUp.email>[0] &
+          Record<string, unknown>;
+        const response = await authClient.signUp.email(signupPayload);
 
         if (response.error) {
-          const message = response.error.message || "Unable to create account.";
+          const message = getAuthErrorMessage(
+            response.error,
+            "Too many attempts, try again in a moment.",
+          );
           setErrorMessage(message);
           toast.error(message);
           return;
@@ -207,8 +250,7 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
         router.push(resolveAuthRedirect(returnTo ?? null, "/onboarding"));
         router.refresh();
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to create account.";
+        const message = getAuthErrorMessage(error, "Unable to create account.");
         setErrorMessage(message);
         toast.error(message);
       }
@@ -240,6 +282,30 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <div className="flex items-start gap-2.5">
+              <Checkbox
+                ariaLabel="Accept the Terms of Service and Privacy Policy"
+                checked={legalAccepted}
+                onChange={setLegalAccepted}
+              />
+              <span className="text-[12.5px] text-foreground-light leading-[1.5]">
+                I agree to the{" "}
+                <Link
+                  href="/legal/terms"
+                  className="text-foreground underline underline-offset-2"
+                >
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/legal/privacy"
+                  className="text-foreground underline underline-offset-2"
+                >
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </div>
             {errorMessage && (
               <div className="text-sm text-destructive">{errorMessage}</div>
             )}
@@ -249,7 +315,12 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
               variant="primary"
               size="medium"
               block
-              disabled={!email.trim() || password.length < 8 || isPending}
+              disabled={
+                !email.trim() ||
+                password.length < 8 ||
+                !legalAccepted ||
+                isPending
+              }
               onClick={submitSignup}
             >
               {isPending ? "Creating account..." : "Sign up"}
@@ -291,7 +362,10 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
         });
 
         if (response.error) {
-          const message = response.error.message || "Unable to log in.";
+          const message = getAuthErrorMessage(
+            response.error,
+            "Too many attempts, try again in a moment.",
+          );
           setErrorMessage(message);
           toast.error(message);
           return;
@@ -301,8 +375,7 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
         router.push(resolveAuthRedirect(returnTo ?? null, "/dashboard"));
         router.refresh();
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to log in.";
+        const message = getAuthErrorMessage(error, "Unable to log in.");
         setErrorMessage(message);
         toast.error(message);
       }
@@ -688,6 +761,9 @@ export function OnboardingScreen() {
                   to your funds.
                 </div>
               </div>
+              <div className="text-xs text-foreground-lighter leading-[1.6]">
+                {NON_CUSTODIAL_DISCLAIMER}
+              </div>
               <Input
                 label="Wallet address (Base)"
                 placeholder="0x..."
@@ -771,6 +847,9 @@ export function OnboardingScreen() {
                   Checkouts are ready to accept USDC on Base. Payments go
                   straight to your wallet - nothing further to set up.
                 </div>
+              </div>
+              <div className="text-xs text-foreground-lighter leading-[1.6]">
+                {NON_CUSTODIAL_DISCLAIMER}
               </div>
               {errorMessage && (
                 <div className="text-sm text-destructive">{errorMessage}</div>

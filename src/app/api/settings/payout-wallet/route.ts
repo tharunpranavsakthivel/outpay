@@ -3,11 +3,38 @@
  */
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
-import { replacePrimaryWallet } from "@/lib/dashboard/server";
+import {
+  getCurrentMerchantIdForRateLimit,
+  replacePrimaryWallet,
+} from "@/lib/dashboard/server";
 import { registerPrimaryWalletWithAlchemy } from "@/lib/providers/alchemy";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createJsonRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const merchantId = await getCurrentMerchantIdForRateLimit();
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        scopeType: "merchant",
+        scopeValue: merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+      routeId: "/api/settings/payout-wallet POST",
+    });
+
+    if (!rateLimit.allowed) {
+      return createJsonRateLimitError(
+        RATE_LIMIT_POLICIES.defaultAuthenticatedRoute,
+        rateLimit.retryAfterSeconds,
+      );
+    }
+
     const body = (await request.json()) as {
       confirmed?: boolean;
       walletAddress?: string;

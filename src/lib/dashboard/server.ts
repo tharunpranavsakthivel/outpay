@@ -488,6 +488,21 @@ async function getMerchantContext(): Promise<MerchantContext> {
 }
 
 /**
+ * Resolves the current request into the active merchant id used by dashboard
+ * route-level rate limiting.
+ *
+ * Returns:
+ * - Merchant UUID for the signed-in dashboard context.
+ *
+ * Throws:
+ * - `Error` when the request is unauthenticated or has no merchant mapping.
+ */
+export async function getCurrentMerchantIdForRateLimit(): Promise<string> {
+  const context = await getMerchantContext();
+  return context.merchant.merchantId;
+}
+
+/**
  * Creates or repairs the initial merchant graph for a signed-in user who just
  * completed onboarding.
  *

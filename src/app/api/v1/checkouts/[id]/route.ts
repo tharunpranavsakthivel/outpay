@@ -5,6 +5,12 @@ import {
 } from "@/lib/api/public";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
 import { getMerchantCheckoutStatus } from "@/lib/dashboard/server";
+import {
+  buildRateLimitKey,
+  consumeRateLimit,
+  createPublicApiRateLimitError,
+  RATE_LIMIT_POLICIES,
+} from "@/lib/security/rate-limit";
 
 /**
  * Public v1 checkout-read endpoint authenticated by merchant API keys.
@@ -41,6 +47,24 @@ export async function GET(
     }
 
     const { id } = await context.params;
+    const rateLimit = await consumeRateLimit({
+      key: buildRateLimitKey({
+        policy: RATE_LIMIT_POLICIES.checkoutRead,
+        scopeType: "merchant",
+        scopeValue: auth.merchantId,
+      }),
+      policy: RATE_LIMIT_POLICIES.checkoutRead,
+      routeId: "/api/v1/checkouts/[id] GET",
+    });
+
+    if (!rateLimit.allowed) {
+      return createPublicApiRateLimitError({
+        policy: RATE_LIMIT_POLICIES.checkoutRead,
+        requestId,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      });
+    }
+
     const checkout = await getMerchantCheckoutStatus(auth.merchantId, id);
 
     if (!checkout) {

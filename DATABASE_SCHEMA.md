@@ -243,8 +243,9 @@ Database support required:
 
 ### Table: `user_profiles`
 
-- Purpose: Application profile for each authenticated user from Supabase Auth.
-- Justified by: `src/views/AuthOnboarding.tsx`, `src/views/AccountSettings.tsx`
+- Purpose: Application profile for each authenticated user mirrored from Better Auth.
+- Justified by: `src/views/AuthScreens.tsx`, `src/views/AccountSettings.tsx`, and
+  `src/lib/auth/index.ts`
 - Primary key: `id uuid` references `auth.users(id)`
 
 | Column | Type | Required | Default | Notes |
@@ -255,6 +256,8 @@ Database support required:
 | `avatar_url` | `text` | no | `null` | future account avatar |
 | `password_changed_at` | `timestamptz` | no | `null` | supports security audit |
 | `two_factor_status` | `two_factor_status_enum` | yes | `'disabled'` | matches coming-soon security path |
+| `terms_accepted_at` | `timestamptz` | no | `null` | server-generated Terms of Service acceptance time |
+| `privacy_accepted_at` | `timestamptz` | no | `null` | server-generated Privacy Policy acceptance time |
 | `last_login_at` | `timestamptz` | no | `null` | auth analytics |
 | `created_at` | `timestamptz` | yes | `now()` | |
 | `updated_at` | `timestamptz` | yes | `now()` | |
@@ -263,6 +266,10 @@ Database support required:
   - `unique(email)`
 - Indexes:
   - `idx_user_profiles_email`
+- Migration note:
+  - `0009_legal_acceptance_tracking` adds the same acceptance timestamps to
+    Better Auth's `"user"` table so the signup write and profile mirror use the
+    same server-generated values.
 - RLS:
   - User can `select` and `update` own row only.
   - Admin/support service role can read all.
@@ -1598,6 +1605,8 @@ create table user_profiles (
   password_changed_at timestamptz,
   two_factor_status two_factor_status_enum not null default 'disabled',
   last_login_at timestamptz,
+  privacy_accepted_at timestamptz,
+  terms_accepted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { StatusPill } from "../components/ui/StatusPill";
 import { useToast } from "../components/ui/Toast";
 import type { PublicCheckoutData } from "../lib/dashboard/types";
+import { NON_CUSTODIAL_DISCLAIMER } from "../lib/legal/compliance";
 
 const STATUS_CONFIG = {
   detected: {
@@ -193,6 +194,14 @@ export default function CustomerCheckout({
                 )}
               </div>
             </div>
+            <div className="flex gap-2 items-start text-xs leading-[1.5] text-warning">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <div>
+                <strong>Cryptocurrency payments are irreversible.</strong>{" "}
+                Verify the wallet address, network, token, and exact amount
+                before sending.
+              </div>
+            </div>
           </div>
 
           <Button
@@ -220,8 +229,7 @@ export default function CustomerCheckout({
           )}
 
           <div className="text-[11.5px] text-foreground-lighter text-center leading-[1.6] pt-3.5 border-t border-border mt-0.5">
-            Non-custodial: this payment goes directly from your wallet to the
-            merchant&apos;s wallet. Outpay never holds your funds.
+            {NON_CUSTODIAL_DISCLAIMER}
           </div>
         </div>
       </div>
