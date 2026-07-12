@@ -51,7 +51,7 @@ async function handleUploadStoreLogo(request: Request) {
       return jsonError(
         415,
         "UNSUPPORTED_FILE_TYPE",
-        "Upload a PNG, JPEG, WebP, or SVG image.",
+        "Upload a PNG, JPEG, or WebP image. SVG logos are not supported.",
       );
     }
 

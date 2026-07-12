@@ -9,8 +9,8 @@ import {
 } from "@/lib/security/rate-limit";
 
 /**
- * Streams a store logo asset. Each asset ID is unique per upload, so the
- * response can be cached forever.
+ * Streams the current active merchant's raster logo. Replaced and orphaned
+ * asset IDs are intentionally not served, even when the caller knows them.
  */
 async function getStoreLogo(
   request: Request,
@@ -44,6 +44,9 @@ async function getStoreLogo(
     headers: {
       "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Type": asset.contentType,
+      "Content-Security-Policy":
+        "default-src 'none'; img-src 'self'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

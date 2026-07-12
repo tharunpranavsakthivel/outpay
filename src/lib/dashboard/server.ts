@@ -13,7 +13,9 @@ import {
 } from "@/lib/database/client";
 import { logger, setRequestMerchantId } from "@/lib/logging/logger";
 import { enqueueMerchantWebhookJob } from "@/lib/queues/jobs";
+import { isAllowedLogoContentType } from "@/lib/storage/logo-policy";
 import {
+  deleteObject,
   getObject,
   TIGRIS_BUCKET_NAME,
   uploadObject,
@@ -95,6 +97,11 @@ export interface MerchantContext {
   merchant: MerchantShellData;
   role: MerchantRole;
   userId: string;
+}
+
+export interface StoreLogoObjectDependencies {
+  connectToDatabase: typeof connectToDatabase;
+  getObject: typeof getObject;
 }
 
 interface MerchantWalletContext {
@@ -3087,9 +3094,10 @@ export async function updateAccountAvatarColor(input: { avatarColor: string }) {
 
 /**
  * Uploads a new store logo to object storage, records it in `file_assets`,
- * and points `merchants.logo_asset_id` at the new row. Each upload creates a
- * fresh asset row (rather than overwriting the previous object), so the
- * returned URL is unique per upload and safe to cache forever.
+ * and points `merchants.logo_asset_id` at the new row. The prior current logo
+ * row is removed in the same transaction and its object is deleted after the
+ * transaction commits, so historical logo IDs are not retained as readable
+ * assets.
  *
  * Parameters:
  * - buffer: Raw image bytes.
@@ -3103,6 +3111,12 @@ export async function uploadStoreLogo(input: {
   buffer: Buffer;
   contentType: string;
 }): Promise<{ logoUrl: string }> {
+  if (!isAllowedLogoContentType(input.contentType)) {
+    throw new Error(
+      "Store logos must be PNG, JPEG, or WebP images; SVG logos are not supported.",
+    );
+  }
+
   const context = await getMerchantContext();
   const assetId = randomUUID();
   const storagePath = `merchant-logos/${assetId}`;
@@ -3114,54 +3128,118 @@ export async function uploadStoreLogo(input: {
     key: storagePath,
   });
 
-  const database = await connectToDatabase();
+  let previousAsset: { id: string; storage_path: string } | undefined;
 
   try {
-    await database.sql.begin(async (sql) => {
-      await sql`
-        insert into file_assets (
-          id,
-          owner_merchant_id,
-          storage_bucket,
-          storage_path,
-          mime_type,
-          byte_size,
-          sha256,
-          uploaded_by_user_id
-        )
-        values (
-          ${assetId}::uuid,
-          ${context.merchant.merchantId}::uuid,
-          ${TIGRIS_BUCKET_NAME},
-          ${storagePath},
-          ${input.contentType},
-          ${input.buffer.length},
-          ${sha256},
-          ${context.userId}::uuid
-        )
-      `;
+    const database = await connectToDatabase();
 
-      await sql`
-        update merchants
-        set
-          logo_asset_id = ${assetId}::uuid,
-          updated_at = now()
-        where id = ${context.merchant.merchantId}::uuid
-      `;
+    try {
+      await database.sql.begin(async (sql) => {
+        const [currentAsset] = await sql<
+          { id: string | null; storage_path: string | null }[]
+        >`
+          select fa.id::text as id, fa.storage_path
+          from merchants m
+          left join file_assets fa on fa.id = m.logo_asset_id
+          where m.id = ${context.merchant.merchantId}::uuid
+          for update of m
+        `;
+        previousAsset =
+          currentAsset?.id && currentAsset.storage_path
+            ? {
+                id: currentAsset.id,
+                storage_path: currentAsset.storage_path,
+              }
+            : undefined;
+
+        await sql`
+          insert into file_assets (
+            id,
+            owner_merchant_id,
+            storage_bucket,
+            storage_path,
+            mime_type,
+            byte_size,
+            sha256,
+            uploaded_by_user_id
+          )
+          values (
+            ${assetId}::uuid,
+            ${context.merchant.merchantId}::uuid,
+            ${TIGRIS_BUCKET_NAME},
+            ${storagePath},
+            ${input.contentType},
+            ${input.buffer.length},
+            ${sha256},
+            ${context.userId}::uuid
+          )
+        `;
+
+        const [updatedMerchant] = await sql<{ id: string }[]>`
+          update merchants
+          set
+            logo_asset_id = ${assetId}::uuid,
+            updated_at = now()
+          where id = ${context.merchant.merchantId}::uuid
+          returning id
+        `;
+
+        if (!updatedMerchant) {
+          throw new Error(
+            "The merchant could not be updated with the new logo.",
+          );
+        }
+
+        if (previousAsset) {
+          await sql`
+            delete from file_assets
+            where id = ${previousAsset.id}::uuid
+          `;
+        }
+      });
+    } finally {
+      await database.release();
+    }
+  } catch (error) {
+    await deleteObject({ key: storagePath }).catch((cleanupError) => {
+      logger.error(
+        {
+          asset_id: assetId,
+          err: cleanupError,
+          merchant_id: context.merchant.merchantId,
+          storage_path: storagePath,
+        },
+        "Failed to clean up a logo object after database persistence failed.",
+      );
     });
-  } finally {
-    await database.release();
+    throw error;
+  }
+
+  if (previousAsset) {
+    await deleteObject({ key: previousAsset.storage_path }).catch((error) => {
+      logger.error(
+        {
+          asset_id: previousAsset?.id,
+          err: error,
+          merchant_id: context.merchant.merchantId,
+          storage_path: previousAsset?.storage_path,
+        },
+        "Failed to delete the replaced store logo object after database cleanup.",
+      );
+    });
   }
 
   return { logoUrl: `/api/store-logo/${assetId}` };
 }
 
 /**
- * Streams a previously uploaded store logo asset. Public by design — store
- * logos are shown on public checkout pages.
+ * Streams the current raster store logo for an active merchant. Public access
+ * is intentional because checkout pages display the logo, but the lookup is
+ * scoped to the current `merchants.logo_asset_id`; replaced and orphaned IDs
+ * are not readable.
  *
  * Parameters:
- * - assetId: `file_assets.id` referenced by `merchants.logo_asset_id`.
+ * - assetId: `file_assets.id` currently referenced by an active merchant.
  *
  * Returns:
  * - Image bytes and content type when the asset exists.
@@ -3169,12 +3247,16 @@ export async function uploadStoreLogo(input: {
  */
 export async function getStoreLogoObject(
   assetId: string,
+  dependencies: StoreLogoObjectDependencies = {
+    connectToDatabase,
+    getObject,
+  },
 ): Promise<{ buffer: Uint8Array; contentType: string } | null> {
   if (!UUID_PATTERN.test(assetId)) {
     return null;
   }
 
-  const database = await connectToDatabase();
+  const database = await dependencies.connectToDatabase();
 
   let storagePath: string;
   let mimeType: string;
@@ -3183,9 +3265,12 @@ export async function getStoreLogoObject(
     const [asset] = await database.sql<
       { mime_type: string; storage_path: string }[]
     >`
-      select storage_path, mime_type
-      from file_assets
-      where id = ${assetId}::uuid
+      select fa.storage_path, fa.mime_type
+      from file_assets fa
+      join merchants m on m.logo_asset_id = fa.id
+      where fa.id = ${assetId}::uuid
+        and m.status = 'active'
+        and fa.mime_type in ('image/png', 'image/jpeg', 'image/webp')
       limit 1
     `;
 
@@ -3199,7 +3284,7 @@ export async function getStoreLogoObject(
     await database.release();
   }
 
-  const object = await getObject({ key: storagePath });
+  const object = await dependencies.getObject({ key: storagePath });
 
   return object ? { buffer: object.buffer, contentType: mimeType } : null;
 }

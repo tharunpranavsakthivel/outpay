@@ -5,6 +5,7 @@
  */
 
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   NoSuchKey,
   PutObjectCommand,
@@ -23,14 +24,9 @@ if (!ENDPOINT || !BUCKET_NAME || !ACCESS_KEY_ID || !SECRET_ACCESS_KEY) {
 }
 
 export const TIGRIS_BUCKET_NAME = BUCKET_NAME;
+export { ALLOWED_LOGO_CONTENT_TYPES } from "./logo-policy";
 
 export const LOGO_MAX_BYTES = 5 * 1024 * 1024;
-export const ALLOWED_LOGO_CONTENT_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/svg+xml",
-]);
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION?.trim() || "auto",
@@ -60,6 +56,28 @@ export async function uploadObject(params: {
       Bucket: BUCKET_NAME,
       CacheControl: "public, max-age=31536000, immutable",
       ContentType: params.contentType,
+      Key: params.key,
+    }),
+  );
+}
+
+/**
+ * Deletes an object from the configured bucket.
+ *
+ * Parameters:
+ * - key: Storage path of the object to remove.
+ *
+ * Returns:
+ * - Resolves after the storage provider acknowledges deletion.
+ *
+ * Throws:
+ * - The provider error when deletion cannot be completed; callers decide
+ *   whether the operation can safely continue without cleanup.
+ */
+export async function deleteObject(params: { key: string }): Promise<void> {
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
       Key: params.key,
     }),
   );
