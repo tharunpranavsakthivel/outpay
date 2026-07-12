@@ -239,6 +239,47 @@ export class ForbiddenRoleError extends Error {
 }
 
 /**
+ * Identifies checkout creation attempts for a merchant that cannot transact.
+ *
+ * Parameters:
+ * - status: Current persisted merchant status.
+ *
+ * Returns:
+ * - An error carrying a clear operational message for dashboard and API callers.
+ */
+export class MerchantInactiveError extends Error {
+  readonly code = "MERCHANT_NOT_ACTIVE" as const;
+  readonly merchantStatus: string;
+
+  constructor(status: string) {
+    super(
+      `Checkout creation is disabled while the merchant status is '${status}'.`,
+    );
+    this.merchantStatus = status;
+    this.name = "MerchantInactiveError";
+  }
+}
+
+/**
+ * Enforces the merchant lifecycle gate shared by dashboard and public checkout
+ * creation.
+ *
+ * Parameters:
+ * - status: Current persisted merchant status.
+ *
+ * Returns:
+ * - Nothing when the merchant is active.
+ *
+ * Throws:
+ * - `MerchantInactiveError` when the merchant is paused, deactivated, or under review.
+ */
+export function assertMerchantActive(status: string): void {
+  if (status !== "active") {
+    throw new MerchantInactiveError(status);
+  }
+}
+
+/**
  * Ensures the authenticated merchant member has one of the roles required for
  * a sensitive merchant mutation.
  *
@@ -892,60 +933,67 @@ export async function completeMerchantOnboarding(input: {
  * Returns:
  * - Wallet and network context used by checkout and settings flows.
  */
+async function queryPrimaryWalletContext(
+  sql: DatabaseSql,
+  merchantId: string,
+): Promise<MerchantWalletContext | null> {
+  const rows = await sql<
+    {
+      address: string;
+      blockchain_name: string;
+      chain_slug: string;
+      chain_numeric_id: number;
+      token_contract: string;
+      token_id: string;
+      token_symbol: string;
+      wallet_id: string;
+    }[]
+  >`
+    select
+      wa.id as wallet_id,
+      wa.address,
+      b.display_name as blockchain_name,
+      b.slug::text as chain_slug,
+      b.chain_numeric_id,
+      t.contract_address as token_contract,
+      t.id as token_id,
+      t.symbol::text as token_symbol
+    from wallet_addresses wa
+    join blockchains b
+      on b.id = wa.chain_id
+    join tokens t
+      on t.chain_id = b.id
+     and t.is_enabled = true
+     and t.is_mvp_default = true
+    where wa.merchant_id = ${merchantId}
+      and wa.wallet_type = 'merchant_payout'
+      and wa.status = 'active'
+      and wa.is_primary = true
+    order by wa.created_at desc
+    limit 1
+  `;
+
+  return rows[0]
+    ? {
+        address: rows[0].address,
+        blockchainName: rows[0].blockchain_name,
+        chainSlug: rows[0].chain_slug,
+        chainNumericId: rows[0].chain_numeric_id,
+        tokenContract: rows[0].token_contract,
+        tokenId: rows[0].token_id,
+        tokenSymbol: rows[0].token_symbol,
+        walletId: rows[0].wallet_id,
+      }
+    : null;
+}
+
 async function getPrimaryWalletContext(
   merchantId: string,
 ): Promise<MerchantWalletContext | null> {
   const database = await connectToDatabase();
 
   try {
-    const rows = await database.sql<
-      {
-        address: string;
-        blockchain_name: string;
-        chain_slug: string;
-        chain_numeric_id: number;
-        token_contract: string;
-        token_id: string;
-        token_symbol: string;
-        wallet_id: string;
-      }[]
-    >`
-      select
-        wa.id as wallet_id,
-        wa.address,
-        b.display_name as blockchain_name,
-        b.slug::text as chain_slug,
-        b.chain_numeric_id,
-        t.contract_address as token_contract,
-        t.id as token_id,
-        t.symbol::text as token_symbol
-      from wallet_addresses wa
-      join blockchains b
-        on b.id = wa.chain_id
-      join tokens t
-        on t.chain_id = b.id
-       and t.is_enabled = true
-       and t.is_mvp_default = true
-      where wa.merchant_id = ${merchantId}
-        and wa.wallet_type = 'merchant_payout'
-        and wa.status = 'active'
-        and wa.is_primary = true
-      order by wa.created_at desc
-      limit 1
-    `;
-
-    return rows[0]
-      ? {
-          address: rows[0].address,
-          blockchainName: rows[0].blockchain_name,
-          chainSlug: rows[0].chain_slug,
-          chainNumericId: rows[0].chain_numeric_id,
-          tokenContract: rows[0].token_contract,
-          tokenId: rows[0].token_id,
-          tokenSymbol: rows[0].token_symbol,
-          walletId: rows[0].wallet_id,
-        }
-      : null;
+    return await queryPrimaryWalletContext(database.sql, merchantId);
   } finally {
     await database.release();
   }
@@ -1690,14 +1738,7 @@ function sanitizeWebhookUrl(url: string | null): string | null {
 export async function createCheckoutForMerchant(
   input: CreateCheckoutForMerchantInput,
 ): Promise<MerchantCheckoutRecord> {
-  const wallet = await getPrimaryWalletContext(input.merchantId);
   const expiryPolicy = getCheckoutExpiryPolicy();
-
-  if (!wallet) {
-    throw new Error(
-      "Add an active primary payout wallet before creating a checkout.",
-    );
-  }
 
   const amountUsd = normalizePositiveAmount(input.amount);
   const label = input.label.trim();
@@ -1728,7 +1769,32 @@ export async function createCheckoutForMerchant(
   const expiresAt = calculateCheckoutExpiryFromNow(new Date(), expiryPolicy);
 
   try {
-    const [checkout] = await database.sql.begin(async (sql) => {
+    const { checkout, wallet } = await database.sql.begin(async (sql) => {
+      const [merchant] = await sql<
+        {
+          status: string;
+        }[]
+      >`
+        select status::text as status
+        from merchants
+        where id = ${input.merchantId}::uuid
+        for update
+      `;
+
+      if (!merchant) {
+        throw new Error("Merchant was not found for checkout creation.");
+      }
+
+      assertMerchantActive(merchant.status);
+
+      const wallet = await queryPrimaryWalletContext(sql, input.merchantId);
+
+      if (!wallet) {
+        throw new Error(
+          "Add an active primary payout wallet before creating a checkout.",
+        );
+      }
+
       const rows = await sql<
         {
           amount_token: string;
@@ -1851,7 +1917,10 @@ export async function createCheckoutForMerchant(
         `;
       }
 
-      return rows;
+      return {
+        checkout: rows[0],
+        wallet,
+      };
     });
 
     return {
@@ -1879,6 +1948,7 @@ export async function createDashboardCheckout(
   input: CreateCheckoutFormData,
 ): Promise<CreateCheckoutResult> {
   const context = await getMerchantContext();
+  assertMerchantActive(context.merchant.status);
   const checkout = await createCheckoutForMerchant({
     actorType: "user",
     amount: input.amountUsd,
@@ -2616,6 +2686,7 @@ export async function replacePrimaryWallet(input: {
 export async function upsertWebhookEndpoint(input: { url: string }) {
   const context = await getMerchantContext();
   requireRole(context, ["owner", "admin"]);
+  assertMerchantActive(context.merchant.status);
   const database = await connectToDatabase();
   const url = await validateMerchantWebhookUrl(input.url);
 
@@ -2624,6 +2695,19 @@ export async function upsertWebhookEndpoint(input: { url: string }) {
 
   try {
     const endpoint = await database.sql.begin(async (sql) => {
+      const [merchant] = await sql<{ status: string }[]>`
+        select status::text as status
+        from merchants
+        where id = ${context.merchant.merchantId}::uuid
+        for update
+      `;
+
+      if (!merchant) {
+        throw new Error("Webhook endpoint update could not find the merchant.");
+      }
+
+      assertMerchantActive(merchant.status);
+
       const [existingEndpoint] = await sql<
         {
           id: string;
@@ -2929,7 +3013,19 @@ export async function retryWebhookDelivery(input: {
 }
 
 /**
- * Marks the merchant as deactivated and records a deactivation reason.
+ * Deactivates a merchant and atomically disables its transaction surfaces.
+ *
+ * Parameters:
+ * - input.confirmationText: Exact store name entered by the authorized caller.
+ *
+ * Returns:
+ * - Deactivated merchant status after API keys, webhooks, and open checkouts
+ *   have been disabled in the same transaction.
+ *
+ * Throws:
+ * - `ForbiddenRoleError` for non-owner/non-admin callers.
+ * - `Error` when confirmation or any required database mutation fails; the
+ *   transaction rolls back all related state in that case.
  */
 export async function deactivateStore(input: { confirmationText: string }) {
   const context = await getMerchantContext();
@@ -2942,9 +3038,111 @@ export async function deactivateStore(input: { confirmationText: string }) {
   const database = await connectToDatabase();
 
   try {
-    await database.sql.begin(async (sql) => {
+    const result = await database.sql.begin(async (sql) => {
+      const [currentMerchant] = await sql<
+        {
+          status: string;
+        }[]
+      >`
+        select status::text as status
+        from merchants
+        where id = ${context.merchant.merchantId}::uuid
+        for update
+      `;
+
+      if (!currentMerchant) {
+        throw new Error("Store deactivation could not find the merchant row.");
+      }
+
+      const revokedApiKeys = await sql<{ id: string }[]>`
+        update api_keys
+        set
+          status = 'revoked',
+          revoked_at = now()
+        where merchant_id = ${context.merchant.merchantId}::uuid
+          and status = 'active'
+        returning id::text as id
+      `;
+
+      const disabledWebhookEndpoints = await sql<{ id: string }[]>`
+        update webhook_endpoints
+        set
+          status = 'disabled',
+          updated_at = now()
+        where merchant_id = ${context.merchant.merchantId}::uuid
+        returning id::text as id
+      `;
+
+      const openCheckouts = await sql<
+        {
+          checkout_ref: string;
+          id: string;
+          status: string;
+        }[]
+      >`
+        select
+          id::text as id,
+          checkout_ref,
+          status::text as status
+        from checkout_sessions
+        where merchant_id = ${context.merchant.merchantId}::uuid
+          and status in ('pending', 'detected')
+          and (expires_at is null or expires_at > now())
+        for update
+      `;
+
+      if (openCheckouts.length > 0) {
+        await sql`
+          update payment_intents pi
+          set
+            match_status = 'expired',
+            expires_at = now(),
+            updated_at = now()
+          from checkout_sessions cs
+          where pi.checkout_session_id = cs.id
+            and pi.merchant_id = ${context.merchant.merchantId}::uuid
+            and cs.merchant_id = ${context.merchant.merchantId}::uuid
+            and cs.status in ('pending', 'detected')
+            and (cs.expires_at is null or cs.expires_at > now())
+            and pi.match_status in ('awaiting_payment', 'detected')
+        `;
+      }
+
+      const expiredCheckouts = await sql<{ id: string }[]>`
+        update checkout_sessions
+        set
+          status = 'expired',
+          expires_at = now(),
+          updated_at = now()
+        where merchant_id = ${context.merchant.merchantId}::uuid
+          and status in ('pending', 'detected')
+          and (expires_at is null or expires_at > now())
+        returning id::text as id
+      `;
+
+      for (const checkout of openCheckouts) {
+        await sql`
+          insert into checkout_status_history (
+            checkout_session_id,
+            from_status,
+            to_status,
+            reason_code,
+            actor_type,
+            message
+          ) values (
+            ${checkout.id}::uuid,
+            ${checkout.status}::checkout_status_enum,
+            'expired',
+            'manual_deactivation',
+            'system',
+            ${`Checkout ${checkout.checkout_ref} expired because its merchant store was deactivated.`}
+          )
+        `;
+      }
+
       const [merchant] = await sql<
         {
+          deactivated_at: string;
           status: string;
         }[]
       >`
@@ -2954,8 +3152,8 @@ export async function deactivateStore(input: { confirmationText: string }) {
           deactivated_at = now(),
           deactivated_reason = 'Merchant deactivated the store from dashboard settings.',
           updated_at = now()
-        where id = ${context.merchant.merchantId}
-        returning status::text as status
+        where id = ${context.merchant.merchantId}::uuid
+        returning status::text as status, deactivated_at::text as deactivated_at
       `;
 
       if (!merchant) {
@@ -2968,16 +3166,21 @@ export async function deactivateStore(input: { confirmationText: string }) {
         actorUserId: context.userId,
         merchantId: context.merchant.merchantId,
         metadata: {
+          disabledWebhookEndpointCount: disabledWebhookEndpoints.length,
+          expiredCheckoutCount: expiredCheckouts.length,
           newStatus: merchant.status,
-          previousStatus: context.merchant.status,
+          previousStatus: currentMerchant.status,
+          revokedApiKeyCount: revokedApiKeys.length,
         },
         resourceId: context.merchant.merchantId,
         resourceType: "merchant",
       });
+
+      return merchant;
     });
 
     return {
-      status: "deactivated",
+      status: result.status,
     };
   } finally {
     await database.release();
@@ -3445,6 +3648,7 @@ export async function createApiKey(input: {
 }) {
   const context = await getMerchantContext();
   requireRole(context, ["owner", "admin"]);
+  assertMerchantActive(context.merchant.status);
   const database = await connectToDatabase();
   const name = input.name.trim();
 
@@ -3456,6 +3660,19 @@ export async function createApiKey(input: {
 
   try {
     const apiKey = await database.sql.begin(async (sql) => {
+      const [merchant] = await sql<{ status: string }[]>`
+        select status::text as status
+        from merchants
+        where id = ${context.merchant.merchantId}::uuid
+        for update
+      `;
+
+      if (!merchant) {
+        throw new Error("API key creation could not find the merchant.");
+      }
+
+      assertMerchantActive(merchant.status);
+
       const [createdApiKey] = await sql<
         {
           created_at: string;

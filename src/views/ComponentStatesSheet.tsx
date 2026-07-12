@@ -158,8 +158,9 @@ export default function ComponentStatesSheet() {
                 </div>
                 <div className="p-5 flex flex-col gap-3.5">
                   <div className="text-sm leading-[1.5] text-foreground">
-                    This immediately disables all checkout links until
-                    reactivated by support.
+                    This immediately revokes API keys, disables webhook
+                    endpoints, expires unpaid checkout links, and blocks new
+                    checkouts until reactivated by support.
                   </div>
                   <div>
                     <div className="text-[12.5px] mb-1.5">

@@ -22,6 +22,7 @@ import {
   getSharedRedisConnection,
 } from "@/lib/queues/redis";
 import { dispatchWebhookRequest } from "@/lib/webhooks/dispatch";
+import { isWebhookDispatchAllowed } from "@/lib/webhooks/dispatch-policy";
 import {
   getPersistedWebhookAttemptNumber,
   getWebhookCycleAttemptNumber,
@@ -108,7 +109,12 @@ async function processWebhookJob(
       return;
     }
 
-    if (context.endpointStatus !== "active") {
+    if (
+      !isWebhookDispatchAllowed({
+        endpointStatus: context.endpointStatus,
+        merchantStatus: context.merchantStatus,
+      })
+    ) {
       await persistSkippedAttempt(database.sql, {
         deliveryAttemptId: randomUUID(),
         endpointId: context.endpointId,
@@ -116,7 +122,9 @@ async function processWebhookJob(
         attemptNumber: persistedAttemptNumber,
         body: context.payload,
         message:
-          "Webhook endpoint is disabled. Re-save the endpoint before retrying delivery.",
+          context.merchantStatus !== "active"
+            ? "Merchant is not active. Reactivate the store before retrying delivery."
+            : "Webhook endpoint is disabled. Re-save the endpoint before retrying delivery.",
       });
       await markEventFailed(database.sql, context.eventId);
       return;
@@ -194,6 +202,7 @@ async function loadWebhookDispatchContext(
   eventId: string;
   eventType: string;
   merchantId: string;
+  merchantStatus: string;
   payload: string;
   url: string;
 } | null> {
@@ -205,6 +214,7 @@ async function loadWebhookDispatchContext(
       event_id: string;
       event_type: string;
       merchant_id: string;
+      merchant_status: string;
       payload: string;
       url: string;
     }[]
@@ -212,6 +222,7 @@ async function loadWebhookDispatchContext(
     select
       we.id::text as event_id,
       we.merchant_id::text as merchant_id,
+      m.status::text as merchant_status,
       we.event_type::text as event_type,
       we.payload::text as payload,
       ep.id::text as endpoint_id,
@@ -219,6 +230,8 @@ async function loadWebhookDispatchContext(
       ep.status::text as endpoint_status,
       ep.signing_secret_encrypted as encrypted_secret
     from webhook_events we
+    join merchants m
+      on m.id = we.merchant_id
     join webhook_endpoints ep
       on ep.merchant_id = we.merchant_id
      and ep.environment = 'live'
@@ -237,6 +250,7 @@ async function loadWebhookDispatchContext(
     eventId: rows[0].event_id,
     eventType: rows[0].event_type,
     merchantId: rows[0].merchant_id,
+    merchantStatus: rows[0].merchant_status,
     payload: rows[0].payload,
     url: rows[0].url,
   };

@@ -9,7 +9,10 @@ import {
   validateCreateCheckoutApiRequest,
 } from "@/lib/api/public";
 import { authenticateApiKeyRequest } from "@/lib/auth/api-key";
-import { createCheckoutForMerchant } from "@/lib/dashboard/server";
+import {
+  createCheckoutForMerchant,
+  MerchantInactiveError,
+} from "@/lib/dashboard/server";
 import { connectToDatabase } from "@/lib/database/client";
 import { setRequestMerchantId, withRequestLogging } from "@/lib/logging/logger";
 import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
@@ -216,6 +219,18 @@ async function createApiCheckout(request: Request) {
         error.code,
         error.message,
         error.details,
+        undefined,
+        error,
+      );
+    }
+
+    if (error instanceof MerchantInactiveError) {
+      return publicApiError(
+        requestId,
+        409,
+        error.code,
+        error.message,
+        [],
         undefined,
         error,
       );

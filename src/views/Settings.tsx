@@ -413,8 +413,9 @@ export default function Settings({
               <div>
                 <div className="text-sm font-medium">Deactivate store</div>
                 <div className="text-xs text-foreground-lighter mt-0.5 max-w-[420px]">
-                  This marks the merchant as deactivated and should stop new
-                  checkout activity until the store is reactivated.
+                  This revokes active API keys, disables webhook endpoints,
+                  expires unpaid checkout links, and blocks new checkouts until
+                  the store is reactivated by support.
                 </div>
               </div>
               <Button
@@ -517,8 +518,10 @@ export default function Settings({
               </div>
               <div className="p-6 flex flex-col gap-4">
                 <div className="text-sm text-foreground leading-[1.5]">
-                  This updates the merchant status to `deactivated`. Type the
-                  exact store name to confirm.
+                  This immediately deactivates the store, revokes all active API
+                  keys, disables webhook delivery, expires unpaid checkout
+                  links, and blocks new checkout creation. Type the exact store
+                  name to confirm.
                 </div>
                 <div>
                   <div className="text-sm font-medium mb-1.5">

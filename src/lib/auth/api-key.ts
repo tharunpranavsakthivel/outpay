@@ -184,8 +184,11 @@ export async function authenticateApiKeyRequest(
             secret_hash,
             scopes
           from api_keys
-          where key_prefix = ${keyPrefix}
-            and status = 'active'
+          join merchants
+            on merchants.id = api_keys.merchant_id
+          where api_keys.key_prefix = ${keyPrefix}
+            and api_keys.status = 'active'
+            and merchants.status = 'active'
           limit 1
         `;
         const apiKey = rows[0];
