@@ -1,0 +1,76 @@
+# Outpay pull-request and push quality gate.
+# Uses only disposable CI-local PostgreSQL credentials; production secrets are
+# intentionally not required by lint, typecheck, migration, test, or build.
+# If future tests need external credentials, pass them through GitHub Actions
+# secrets rather than adding literal values to this workflow.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, typecheck, test, and build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: outpay_test
+          POSTGRES_PASSWORD: outpay_test_password
+          POSTGRES_USER: outpay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U outpay_test -d outpay_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      # These values are disposable service credentials, matching
+      # docker-compose.test.yml. They never point at a remote database.
+      DATABASE_URL: postgresql://outpay_test:outpay_test_password@127.0.0.1:5432/outpay_test
+      TEST_DATABASE_URL: postgresql://outpay_test:outpay_test_password@127.0.0.1:5432/outpay_test
+      BETTER_AUTH_SECRET: outpay-ci-only-auth-secret-1234567890
+      BETTER_AUTH_URL: http://127.0.0.1:3001
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Apply database migrations
+        run: bun run db:migrate
+
+      - name: Validate database schema
+        run: bun run db:validate
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
