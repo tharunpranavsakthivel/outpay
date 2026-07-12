@@ -84,7 +84,20 @@ async function createApiCheckout(request: Request) {
       });
     }
 
-    const body = validateCreateCheckoutApiRequest(await request.json());
+    let rawBody: unknown;
+
+    try {
+      rawBody = await request.json();
+    } catch {
+      throw new PublicApiError(
+        400,
+        "VALIDATION_FAILED",
+        "Request body must be valid JSON.",
+        [{ field: "body", issue: "Expected valid JSON." }],
+      );
+    }
+
+    const body = validateCreateCheckoutApiRequest(rawBody);
     const idempotencyKey = parseIdempotencyKey(
       request.headers.get("Idempotency-Key"),
     );

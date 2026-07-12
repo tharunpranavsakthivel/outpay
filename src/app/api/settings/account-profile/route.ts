@@ -11,6 +11,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { accountProfileBodySchema } from "@/lib/validation/routes";
 
 /**
  * Account profile API backed by user_profiles.
@@ -70,13 +72,15 @@ async function handleUpdateAccountProfile(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      fullName?: string;
-    };
+    const parsedBody = await parseJsonBody(request, accountProfileBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
 
     return Response.json(
       await updateAccountProfile({
-        fullName: body.fullName ?? "",
+        fullName: parsedBody.data.fullName,
       }),
     );
   } catch (error) {

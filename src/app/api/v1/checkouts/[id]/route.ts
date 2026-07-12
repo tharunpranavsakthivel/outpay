@@ -12,6 +12,8 @@ import {
   createPublicApiRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { formatValidationDetails } from "@/lib/validation/http";
+import { idParamsSchema } from "@/lib/validation/routes";
 
 /**
  * Public v1 checkout-read endpoint authenticated by merchant API keys.
@@ -49,7 +51,19 @@ async function getApiCheckout(
       );
     }
 
-    const { id } = await context.params;
+    const parsedParams = idParamsSchema.safeParse(await context.params);
+
+    if (!parsedParams.success) {
+      return publicApiError(
+        requestId,
+        400,
+        "VALIDATION_FAILED",
+        "Route parameters contain invalid fields.",
+        formatValidationDetails(parsedParams.error),
+      );
+    }
+
+    const { id } = parsedParams.data;
     const rateLimit = await consumeRateLimit({
       key: buildRateLimitKey({
         policy: RATE_LIMIT_POLICIES.checkoutRead,

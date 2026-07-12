@@ -12,6 +12,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { apiKeyBodySchema } from "@/lib/validation/routes";
 
 /**
  * Developers API key collection route for listing and creating keys.
@@ -79,23 +81,16 @@ async function handleCreateApiKey(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      environment?: "test" | "live";
-      name?: string;
-    };
+    const parsedBody = await parseJsonBody(request, apiKeyBodySchema);
 
-    if (body.environment !== "test" && body.environment !== "live") {
-      return jsonError(
-        400,
-        "INVALID_API_KEY_ENVIRONMENT",
-        "API key environment must be either test or live.",
-      );
+    if (!parsedBody.success) {
+      return parsedBody.response;
     }
 
     return Response.json(
       await createApiKey({
-        environment: body.environment,
-        name: body.name ?? "",
+        environment: parsedBody.data.environment,
+        name: parsedBody.data.name,
       }),
       {
         status: 201,

@@ -18,10 +18,14 @@ describe("PATCH /api/developers/api-keys/[id]", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       error: {
-        code: "INVALID_API_KEY_ACTION",
-        message: "API key action must be revoke.",
+        code: "VALIDATION_FAILED",
+        details: [
+          {
+            field: "action",
+          },
+        ],
       },
     });
   });

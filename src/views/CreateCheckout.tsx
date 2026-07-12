@@ -17,6 +17,12 @@ import type {
   CreateCheckoutPageData,
   CreateCheckoutResult,
 } from "../lib/dashboard/types";
+import {
+  type FieldErrors,
+  getApiErrorMessage,
+  getApiFieldErrors,
+  hasApiError,
+} from "../lib/validation/client";
 
 function usdToUsdc(usd: string) {
   const numericValue = Number(usd.replace(/[^0-9.]/g, ""));
@@ -44,6 +50,7 @@ export default function CreateCheckout({
   const [createdCheckout, setCreatedCheckout] =
     useState<CreateCheckoutResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isCreating, startTransition] = useTransition();
   const [origin, setOrigin] = useState("");
   const toast = useToast();
@@ -62,6 +69,7 @@ export default function CreateCheckout({
 
     startTransition(async () => {
       setSubmitError(null);
+      setFieldErrors({});
 
       const response = await fetch("/api/checkouts", {
         body: JSON.stringify({
@@ -76,15 +84,16 @@ export default function CreateCheckout({
         method: "POST",
       });
 
-      const payload = (await response.json()) as
-        | CreateCheckoutResult
-        | { error?: { message?: string } };
-      const errorMessage = (payload as { error?: { message?: string } }).error
-        ?.message;
+      const payload: unknown = await response.json();
 
-      if (!response.ok || "error" in payload) {
-        setSubmitError(errorMessage ?? "Unable to create checkout.");
-        toast.error(errorMessage ?? "Unable to create checkout.");
+      if (!response.ok || hasApiError(payload)) {
+        const errorMessage = getApiErrorMessage(
+          payload,
+          "Unable to create checkout.",
+        );
+        setFieldErrors(getApiFieldErrors(payload));
+        setSubmitError(errorMessage);
+        toast.error(errorMessage);
         return;
       }
 
@@ -223,6 +232,7 @@ export default function CreateCheckout({
                     label="Product or order name"
                     placeholder="e.g. Espresso subscription - 1 month"
                     value={name}
+                    error={fieldErrors.label}
                     onChange={(event) => setName(event.target.value)}
                   />
                   <div>
@@ -230,6 +240,7 @@ export default function CreateCheckout({
                       label="Amount (USD)"
                       placeholder="0.00"
                       value={amountUsd}
+                      error={fieldErrors.amountUsd}
                       onChange={(event) => setAmountUsd(event.target.value)}
                     />
                     <div className="mt-2 flex items-center gap-1.5 text-xs text-foreground-lighter">
@@ -244,6 +255,7 @@ export default function CreateCheckout({
                     label="Order reference (optional)"
                     placeholder="e.g. Order #4471"
                     value={reference}
+                    error={fieldErrors.orderReference}
                     onChange={(event) => setReference(event.target.value)}
                   />
                   <Input
@@ -251,6 +263,7 @@ export default function CreateCheckout({
                     placeholder="https://your-store.com/thank-you"
                     hint="After payment confirmation the hosted receipt can redirect here."
                     value={redirectUrl}
+                    error={fieldErrors.redirectUrl}
                     onChange={(event) => setRedirectUrl(event.target.value)}
                   />
                   <div className="flex gap-2 items-start text-xs leading-[1.5] bg-warning/10 border border-border-warning rounded-lg p-3 text-foreground">

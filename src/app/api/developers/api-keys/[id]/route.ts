@@ -11,6 +11,11 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody, parseRouteParams } from "@/lib/validation/http";
+import {
+  apiKeyActionBodySchema,
+  idParamsSchema,
+} from "@/lib/validation/routes";
 
 /**
  * Developers API key mutation route for merchant-scoped lifecycle actions.
@@ -20,6 +25,18 @@ async function updateApiKey(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const parsedParams = parseRouteParams(await context.params, idParamsSchema);
+
+    if (!parsedParams.success) {
+      return parsedParams.response;
+    }
+
+    const parsedBody = await parseJsonBody(request, apiKeyActionBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
       key: buildRateLimitKey({
@@ -38,19 +55,7 @@ async function updateApiKey(
       );
     }
 
-    const body = (await request.json()) as {
-      action?: string;
-    };
-
-    if (body.action !== "revoke") {
-      return jsonError(
-        400,
-        "INVALID_API_KEY_ACTION",
-        "API key action must be revoke.",
-      );
-    }
-
-    const { id } = await context.params;
+    const { id } = parsedParams.data;
 
     return Response.json(
       {

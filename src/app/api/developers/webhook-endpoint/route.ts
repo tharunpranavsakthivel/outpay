@@ -13,6 +13,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { webhookEndpointBodySchema } from "@/lib/validation/routes";
 
 /**
  * Developers webhook endpoint API for reading, configuring, and testing the
@@ -83,10 +85,15 @@ async function updateWebhookEndpoint(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { url?: string };
+    const parsedBody = await parseJsonBody(request, webhookEndpointBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
     return Response.json(
       await upsertWebhookEndpoint({
-        url: body.url ?? "",
+        url: parsedBody.data.url,
       }),
     );
   } catch (error) {

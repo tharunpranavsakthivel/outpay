@@ -18,6 +18,12 @@ import { useToast } from "../components/ui/Toast";
 import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
 import { formatDashboardDate } from "../lib/dashboard/format";
 import type { StoreSettingsData } from "../lib/dashboard/types";
+import {
+  type FieldErrors,
+  getApiErrorMessage,
+  getApiFieldErrors,
+  hasApiError,
+} from "../lib/validation/client";
 import type { WalletSignatureProof } from "../lib/wallet/browser-wallet";
 
 /**
@@ -57,6 +63,8 @@ export default function Settings({
   const [lastWebhookTestAt, setLastWebhookTestAt] = useState(
     initialData.lastWebhookTestAt,
   );
+  const [profileErrors, setProfileErrors] = useState<FieldErrors>({});
+  const [walletErrors, setWalletErrors] = useState<FieldErrors>({});
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
 
@@ -79,6 +87,7 @@ export default function Settings({
 
   const saveProfile = () => {
     startTransition(async () => {
+      setProfileErrors({});
       const response = await fetch("/api/settings/store-profile", {
         body: JSON.stringify({
           description: storeDesc,
@@ -91,14 +100,11 @@ export default function Settings({
         },
         method: "PATCH",
       });
-      const payload = (await response.json()) as
-        | { error?: { message?: string } }
-        | Record<string, unknown>;
-      const profileError = (payload as { error?: { message?: string } }).error
-        ?.message;
+      const payload: unknown = await response.json();
 
-      if (!response.ok || "error" in payload) {
-        toast.error(profileError ?? "Unable to save profile.");
+      if (!response.ok || hasApiError(payload)) {
+        setProfileErrors(getApiFieldErrors(payload));
+        toast.error(getApiErrorMessage(payload, "Unable to save profile."));
         return;
       }
 
@@ -110,6 +116,7 @@ export default function Settings({
     if (!canManageSensitiveActions) return;
 
     startTransition(async () => {
+      setWalletErrors({});
       const response = await fetch("/api/settings/payout-wallet", {
         body: JSON.stringify({
           confirmed: walletConfirmed,
@@ -122,18 +129,16 @@ export default function Settings({
         },
         method: "POST",
       });
-      const payload = (await response.json()) as
-        | { error?: { message?: string }; walletAddress?: string }
-        | { walletAddress: string };
-      const walletError = (payload as { error?: { message?: string } }).error
-        ?.message;
+      const payload: unknown = await response.json();
 
-      if (!response.ok || "error" in payload) {
-        toast.error(walletError ?? "Unable to update wallet.");
+      if (!response.ok || hasApiError(payload)) {
+        setWalletErrors(getApiFieldErrors(payload));
+        toast.error(getApiErrorMessage(payload, "Unable to update wallet."));
         return;
       }
 
-      setWalletAddress((payload as { walletAddress: string }).walletAddress);
+      const walletPayload = payload as { walletAddress: string };
+      setWalletAddress(walletPayload.walletAddress);
       setModal(null);
       setWalletProof(null);
       toast.success("Primary payout wallet updated.");
@@ -256,21 +261,25 @@ export default function Settings({
               <Input
                 label="Store name"
                 value={storeName}
+                error={profileErrors.storeName}
                 onChange={(event) => setStoreName(event.target.value)}
               />
               <Input
                 label="Store description"
                 value={storeDesc}
+                error={profileErrors.description}
                 onChange={(event) => setStoreDesc(event.target.value)}
               />
               <Input
                 label="Support email"
                 value={supportEmail}
+                error={profileErrors.supportEmail}
                 onChange={(event) => setSupportEmail(event.target.value)}
               />
               <Input
                 label="Website URL"
                 value={websiteUrl}
+                error={profileErrors.websiteUrl}
                 onChange={(event) => setWebsiteUrl(event.target.value)}
               />
             </CardContent>
@@ -462,6 +471,7 @@ export default function Settings({
                   label={`New wallet address (${initialData.chainName})`}
                   placeholder="0x…"
                   value={newWalletAddress}
+                  error={walletErrors.walletAddress}
                   onChange={(event) =>
                     updateNewWalletAddress(event.target.value)
                   }
@@ -472,6 +482,15 @@ export default function Settings({
                   proof={walletProof}
                   onProofChange={setWalletProof}
                 />
+                {(walletErrors.walletSignature ||
+                  walletErrors.walletSignatureTimestampMs ||
+                  walletErrors.confirmed) && (
+                  <div className="text-xs text-destructive" role="alert">
+                    {walletErrors.walletSignature ||
+                      walletErrors.walletSignatureTimestampMs ||
+                      walletErrors.confirmed}
+                  </div>
+                )}
                 <div className="flex items-start gap-2.5">
                   <Checkbox
                     checked={walletConfirmed}

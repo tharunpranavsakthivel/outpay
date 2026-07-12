@@ -7,6 +7,12 @@ import type React from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
 import { NON_CUSTODIAL_DISCLAIMER } from "@/lib/legal/compliance";
+import {
+  type FieldErrors,
+  getApiErrorMessage,
+  getApiFieldErrors,
+  hasApiError,
+} from "@/lib/validation/client";
 import type { WalletSignatureProof } from "@/lib/wallet/browser-wallet";
 import { Button } from "../components/ui/Button";
 import {
@@ -677,6 +683,7 @@ export function OnboardingScreen() {
   const [walletProof, setWalletProof] = useState<WalletSignatureProof | null>(
     null,
   );
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -703,6 +710,7 @@ export function OnboardingScreen() {
   const submitOnboarding = () => {
     startTransition(async () => {
       setErrorMessage(null);
+      setFieldErrors({});
 
       try {
         const response = await fetch("/api/onboarding", {
@@ -719,22 +727,14 @@ export function OnboardingScreen() {
             walletSignatureTimestampMs: walletProof?.timestampMs ?? 0,
           }),
         });
-        const payload = (await response.json()) as
-          | {
-              nextPath?: string;
-            }
-          | {
-              error?: {
-                code?: string;
-                message?: string;
-              };
-            };
+        const payload: unknown = await response.json();
 
-        if (!response.ok) {
-          const message =
-            "error" in payload && payload.error?.message
-              ? payload.error.message
-              : "Unable to complete onboarding.";
+        if (!response.ok || hasApiError(payload)) {
+          const message = getApiErrorMessage(
+            payload,
+            "Unable to complete onboarding.",
+          );
+          setFieldErrors(getApiFieldErrors(payload));
           setErrorMessage(message);
           toast.error(message);
           return;
@@ -752,11 +752,14 @@ export function OnboardingScreen() {
         }
 
         toast.success("Store setup complete.");
-        router.push(
-          "nextPath" in payload && payload.nextPath
+        const nextPath =
+          payload &&
+          typeof payload === "object" &&
+          "nextPath" in payload &&
+          typeof payload.nextPath === "string"
             ? payload.nextPath
-            : "/dashboard/first-login",
-        );
+            : "/dashboard/first-login";
+        router.push(nextPath);
         router.refresh();
       } catch (error) {
         const message =
@@ -830,12 +833,14 @@ export function OnboardingScreen() {
                 label="Store name"
                 placeholder="Acme Coffee Co."
                 value={storeName}
+                error={fieldErrors.storeName}
                 onChange={(event) => setStoreName(event.target.value)}
               />
               <Input
                 label="Short description"
                 placeholder="Specialty coffee beans & equipment"
                 value={storeDescription}
+                error={fieldErrors.storeDescription}
                 onChange={(event) => setStoreDescription(event.target.value)}
               />
               {errorMessage && (
@@ -879,6 +884,7 @@ export function OnboardingScreen() {
                 label="Wallet address (Base)"
                 placeholder="0x..."
                 value={walletAddress}
+                error={fieldErrors.walletAddress}
                 onChange={(event) => updateWalletAddress(event.target.value)}
               />
               <WalletVerificationPanel

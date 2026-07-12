@@ -12,6 +12,8 @@ import {
   createPublicApiRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { formatValidationDetails } from "@/lib/validation/http";
+import { publicPaymentsQuerySchema } from "@/lib/validation/routes";
 
 /**
  * Public v1 payment-list endpoint authenticated by merchant API keys.
@@ -61,23 +63,24 @@ async function getApiPayments(request: Request) {
     }
 
     const url = new URL(request.url);
-    const limitValue = Number(url.searchParams.get("limit") ?? "25");
-    const status = url.searchParams.get("status");
+    const parsedQuery = publicPaymentsQuerySchema.safeParse(
+      Object.fromEntries(url.searchParams.entries()),
+    );
 
-    if (!Number.isInteger(limitValue) || limitValue < 1 || limitValue > 100) {
+    if (!parsedQuery.success) {
       return publicApiError(
         requestId,
         400,
-        "INVALID_LIMIT",
-        "Limit must be an integer between 1 and 100.",
-        [{ field: "limit", issue: "Value must be between 1 and 100." }],
+        "VALIDATION_FAILED",
+        "Query parameters contain invalid fields.",
+        formatValidationDetails(parsedQuery.error),
       );
     }
 
     const payments = await listMerchantPayments({
-      limit: limitValue,
+      limit: parsedQuery.data.limit,
       merchantId: auth.merchantId,
-      status,
+      status: parsedQuery.data.status,
     });
 
     return publicApiJson(requestId, {

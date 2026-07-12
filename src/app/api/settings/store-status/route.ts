@@ -11,6 +11,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { storeStatusBodySchema } from "@/lib/validation/routes";
 
 /**
  * Merchant lifecycle API for store-wide status mutations.
@@ -35,22 +37,15 @@ async function updateStoreStatus(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      action?: string;
-      confirmationText?: string;
-    };
+    const parsedBody = await parseJsonBody(request, storeStatusBodySchema);
 
-    if (body.action !== "deactivate") {
-      return jsonError(
-        400,
-        "UNSUPPORTED_STORE_ACTION",
-        "Only the deactivate action is supported on this route.",
-      );
+    if (!parsedBody.success) {
+      return parsedBody.response;
     }
 
     return Response.json(
       await deactivateStore({
-        confirmationText: body.confirmationText ?? "",
+        confirmationText: parsedBody.data.confirmationText,
       }),
     );
   } catch (error) {

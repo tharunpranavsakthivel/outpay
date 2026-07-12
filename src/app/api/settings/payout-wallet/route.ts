@@ -16,6 +16,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { payoutWalletBodySchema } from "@/lib/validation/routes";
 
 async function updatePayoutWallet(request: Request) {
   try {
@@ -37,18 +39,19 @@ async function updatePayoutWallet(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      confirmed?: boolean;
-      walletAddress?: string;
-      walletSignature?: string;
-      walletSignatureTimestampMs?: number;
-    };
-    const walletAddress = body.walletAddress?.trim() ?? "";
+    const parsedBody = await parseJsonBody(request, payoutWalletBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
+    const body = parsedBody.data;
+    const walletAddress = body.walletAddress;
     const response = await replacePrimaryWallet({
-      confirmed: Boolean(body.confirmed),
+      confirmed: body.confirmed,
       walletAddress,
-      walletSignature: body.walletSignature ?? "",
-      walletSignatureTimestampMs: body.walletSignatureTimestampMs ?? 0,
+      walletSignature: body.walletSignature,
+      walletSignatureTimestampMs: body.walletSignatureTimestampMs,
     });
 
     if (walletAddress) {

@@ -9,6 +9,8 @@ import {
   logApiErrorResponse,
   withRequestIdHeader,
 } from "@/lib/logging/logger";
+import { formatValidationDetails } from "@/lib/validation/http";
+import { publicCreateCheckoutBodySchema } from "@/lib/validation/routes";
 
 export interface PublicApiErrorDetail {
   field?: string;
@@ -253,103 +255,18 @@ export function hashRequestBody(body: unknown) {
 export function validateCreateCheckoutApiRequest(
   body: unknown,
 ): CreateCheckoutApiRequest {
-  const details: PublicApiErrorDetail[] = [];
+  const result = publicCreateCheckoutBodySchema.safeParse(body);
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
+  if (!result.success) {
     throw new PublicApiError(
       400,
-      "INVALID_REQUEST_BODY",
-      "Request body must be a JSON object.",
-      [{ issue: "Expected a JSON object." }],
-    );
-  }
-
-  const candidate = body as Record<string, unknown>;
-  const amount =
-    typeof candidate.amount === "string" ? candidate.amount.trim() : "";
-  const currency = candidate.currency;
-  const chain = candidate.chain;
-  const successUrl =
-    typeof candidate.successUrl === "string" ? candidate.successUrl.trim() : "";
-  const cancelUrl =
-    typeof candidate.cancelUrl === "string" ? candidate.cancelUrl.trim() : "";
-  const customerEmail =
-    typeof candidate.customerEmail === "string"
-      ? candidate.customerEmail.trim()
-      : "";
-  const metadata = candidate.metadata;
-
-  if (!/^\d+(\.\d{1,2})?$/u.test(amount) || Number(amount) <= 0) {
-    details.push({
-      field: "amount",
-      issue:
-        "Amount must be a positive decimal string with up to 2 decimal places.",
-    });
-  }
-
-  if (currency !== "USDC") {
-    details.push({
-      field: "currency",
-      issue: "Currency must be USDC for the current MVP.",
-    });
-  }
-
-  if (chain !== "base") {
-    details.push({
-      field: "chain",
-      issue: "Chain must be base for the current MVP.",
-    });
-  }
-
-  if (!successUrl || !URL.canParse(successUrl)) {
-    details.push({
-      field: "successUrl",
-      issue: "Success URL must be a valid absolute URL.",
-    });
-  }
-
-  if (cancelUrl && !URL.canParse(cancelUrl)) {
-    details.push({
-      field: "cancelUrl",
-      issue: "Cancel URL must be a valid absolute URL.",
-    });
-  }
-
-  if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(customerEmail)) {
-    details.push({
-      field: "customerEmail",
-      issue: "Customer email must be a valid email address.",
-    });
-  }
-
-  if (
-    metadata !== undefined &&
-    (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
-  ) {
-    details.push({
-      field: "metadata",
-      issue: "Metadata must be a JSON object when provided.",
-    });
-  }
-
-  if (details.length > 0) {
-    throw new PublicApiError(
-      422,
       "VALIDATION_FAILED",
       "The request body did not match the checkout schema.",
-      details,
+      formatValidationDetails(result.error),
     );
   }
 
-  return {
-    amount,
-    cancelUrl: cancelUrl || null,
-    chain: "base",
-    currency: "USDC",
-    customerEmail: customerEmail || null,
-    metadata: (metadata as Record<string, unknown> | undefined) ?? {},
-    successUrl,
-  };
+  return result.data;
 }
 
 /**

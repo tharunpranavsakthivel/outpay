@@ -11,6 +11,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { storeProfileBodySchema } from "@/lib/validation/routes";
 
 /**
  * Merchant store profile API for reading and updating merchants table fields.
@@ -70,12 +72,13 @@ async function updateStoreProfileHandler(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      description?: string;
-      storeName?: string;
-      supportEmail?: string;
-      websiteUrl?: string;
-    };
+    const parsedBody = await parseJsonBody(request, storeProfileBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
+    const body = parsedBody.data;
 
     return Response.json(
       await updateStoreProfile({

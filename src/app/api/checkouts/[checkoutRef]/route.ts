@@ -10,6 +10,11 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody, parseRouteParams } from "@/lib/validation/http";
+import {
+  checkoutActionBodySchema,
+  checkoutParamsSchema,
+} from "@/lib/validation/routes";
 
 /**
  * Single-checkout mutation API for status changes such as deactivation.
@@ -37,17 +42,22 @@ async function patchCheckout(
       );
     }
 
-    const { checkoutRef } = await context.params;
-    const body = (await request.json()) as { action?: string };
+    const parsedParams = parseRouteParams(
+      await context.params,
+      checkoutParamsSchema,
+    );
 
-    if (body.action !== "deactivate") {
-      return jsonError(
-        400,
-        "UNSUPPORTED_CHECKOUT_ACTION",
-        "Only the deactivate action is supported on this route.",
-      );
+    if (!parsedParams.success) {
+      return parsedParams.response;
     }
 
+    const parsedBody = await parseJsonBody(request, checkoutActionBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
+    const { checkoutRef } = parsedParams.data;
     const result = await deactivateCheckout(checkoutRef);
     return Response.json(result);
   } catch (error) {

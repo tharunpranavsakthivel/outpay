@@ -10,6 +10,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { accountAvatarColorBodySchema } from "@/lib/validation/routes";
 
 /**
  * Persists the signed-in user's initials-avatar background color.
@@ -34,11 +36,18 @@ async function handleUpdateAccountAvatarColor(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { avatarColor?: string };
+    const parsedBody = await parseJsonBody(
+      request,
+      accountAvatarColorBodySchema,
+    );
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
 
     return Response.json(
       await updateAccountAvatarColor({
-        avatarColor: body.avatarColor ?? "",
+        avatarColor: parsedBody.data.avatarColor,
       }),
     );
   } catch (error) {

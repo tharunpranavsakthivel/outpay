@@ -10,12 +10,24 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseQueryParams } from "@/lib/validation/http";
+import { dashboardPaymentsQuerySchema } from "@/lib/validation/routes";
 
 /**
  * Merchant payments ledger API with server-side filtering and pagination.
  */
 async function getPayments(request: Request) {
   try {
+    const url = new URL(request.url);
+    const parsedQuery = parseQueryParams(
+      url.searchParams,
+      dashboardPaymentsQuerySchema,
+    );
+
+    if (!parsedQuery.success) {
+      return parsedQuery.response;
+    }
+
     const merchantId = await getCurrentMerchantIdForRateLimit();
     const rateLimit = await consumeRateLimit({
       key: buildRateLimitKey({
@@ -34,25 +46,11 @@ async function getPayments(request: Request) {
       );
     }
 
-    const url = new URL(request.url);
     const data = await getPaymentsPageData({
-      dateRange:
-        (url.searchParams.get("dateRange") as
-          | "7d"
-          | "30d"
-          | "90d"
-          | "all"
-          | null) ?? undefined,
-      page: Number(url.searchParams.get("page") ?? "1"),
-      search: url.searchParams.get("search") ?? "",
-      status:
-        (url.searchParams.get("status") as
-          | "all"
-          | "paid"
-          | "pending"
-          | "failed"
-          | "expired"
-          | null) ?? undefined,
+      dateRange: parsedQuery.data.dateRange,
+      page: parsedQuery.data.page,
+      search: parsedQuery.data.search,
+      status: parsedQuery.data.status,
     });
 
     return Response.json(data);

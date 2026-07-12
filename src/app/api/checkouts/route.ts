@@ -12,6 +12,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { dashboardCheckoutBodySchema } from "@/lib/validation/routes";
 
 /**
  * Checkout collection API for listing and creating merchant checkout sessions.
@@ -72,17 +74,21 @@ async function createCheckout(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      amountUsd?: string;
-      label?: string;
-      orderReference?: string;
-      redirectUrl?: string;
-    };
+    const parsedBody = await parseJsonBody(
+      request,
+      dashboardCheckoutBodySchema,
+    );
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
+    const body = parsedBody.data;
     const result = await createDashboardCheckout({
-      amountUsd: body.amountUsd ?? "",
-      label: body.label ?? "",
-      orderReference: body.orderReference ?? "",
-      redirectUrl: body.redirectUrl ?? "",
+      amountUsd: body.amountUsd,
+      label: body.label,
+      orderReference: body.orderReference,
+      redirectUrl: body.redirectUrl,
     });
     emitMetric(METRIC_NAMES.checkoutsCreatedTotal, 1);
 

@@ -7,6 +7,8 @@ import {
   getClientIp,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseRouteParams } from "@/lib/validation/http";
+import { assetIdParamsSchema } from "@/lib/validation/routes";
 
 /**
  * Streams the current active merchant's raster logo. Replaced and orphaned
@@ -33,7 +35,13 @@ async function getStoreLogo(
     );
   }
 
-  const { assetId } = await params;
+  const parsedParams = parseRouteParams(await params, assetIdParamsSchema);
+
+  if (!parsedParams.success) {
+    return parsedParams.response;
+  }
+
+  const { assetId } = parsedParams.data;
   const asset = await getStoreLogoObject(assetId);
 
   if (!asset) {

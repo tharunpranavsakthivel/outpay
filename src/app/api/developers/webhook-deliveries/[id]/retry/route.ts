@@ -10,6 +10,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseRouteParams } from "@/lib/validation/http";
+import { idParamsSchema } from "@/lib/validation/routes";
 
 /**
  * Manual retry API for a previously exhausted merchant webhook delivery.
@@ -37,11 +39,15 @@ async function handleRetryWebhookDelivery(
       );
     }
 
-    const { id } = await context.params;
+    const parsedParams = parseRouteParams(await context.params, idParamsSchema);
+
+    if (!parsedParams.success) {
+      return parsedParams.response;
+    }
 
     return Response.json(
       await retryWebhookDelivery({
-        deliveryAttemptId: id,
+        deliveryAttemptId: parsedParams.data.id,
       }),
       {
         status: 202,

@@ -11,6 +11,8 @@ import {
   createJsonRateLimitError,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { notificationActionBodySchema } from "@/lib/validation/routes";
 
 /**
  * Dashboard notifications API for listing and marking items as read.
@@ -74,14 +76,13 @@ async function handleMarkNotificationsRead(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { action?: string };
+    const parsedBody = await parseJsonBody(
+      request,
+      notificationActionBodySchema,
+    );
 
-    if (body.action !== "mark-all-read") {
-      return jsonError(
-        400,
-        "UNSUPPORTED_NOTIFICATION_ACTION",
-        "Only the mark-all-read action is supported on this route.",
-      );
+    if (!parsedBody.success) {
+      return parsedBody.response;
     }
 
     await markNotificationsRead();

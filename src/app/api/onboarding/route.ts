@@ -14,6 +14,8 @@ import {
   getClientIp,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseJsonBody } from "@/lib/validation/http";
+import { onboardingBodySchema } from "@/lib/validation/routes";
 
 async function completeOnboarding(request: Request) {
   try {
@@ -34,22 +36,21 @@ async function completeOnboarding(request: Request) {
       );
     }
 
-    const body = (await request.json()) as {
-      storeDescription?: string;
-      storeName?: string;
-      walletAddress?: string;
-      walletConfirmed?: boolean;
-      walletSignature?: string;
-      walletSignatureTimestampMs?: number;
-    };
-    const walletAddress = body.walletAddress?.trim() ?? "";
+    const parsedBody = await parseJsonBody(request, onboardingBodySchema);
+
+    if (!parsedBody.success) {
+      return parsedBody.response;
+    }
+
+    const body = parsedBody.data;
+    const walletAddress = body.walletAddress;
     const response = await completeMerchantOnboarding({
-      storeDescription: body.storeDescription ?? "",
-      storeName: body.storeName ?? "",
+      storeDescription: body.storeDescription,
+      storeName: body.storeName,
       walletAddress,
-      walletConfirmed: Boolean(body.walletConfirmed),
-      walletSignature: body.walletSignature ?? "",
-      walletSignatureTimestampMs: body.walletSignatureTimestampMs ?? 0,
+      walletConfirmed: body.walletConfirmed,
+      walletSignature: body.walletSignature,
+      walletSignatureTimestampMs: body.walletSignatureTimestampMs,
     });
 
     if (walletAddress) {

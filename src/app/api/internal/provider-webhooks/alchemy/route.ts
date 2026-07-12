@@ -15,6 +15,8 @@ import {
   verifyWebhookSignature,
 } from "@/lib/providers/alchemy";
 import { enqueueChainEventJob } from "@/lib/queues/jobs";
+import { formatValidationDetails } from "@/lib/validation/http";
+import { alchemyWebhookPayloadSchema } from "@/lib/validation/routes";
 
 export const runtime = "nodejs";
 
@@ -100,8 +102,23 @@ async function receiveAlchemyWebhook(request: Request) {
     }
 
     if (insertedRawEventId && parseError === undefined) {
-      const normalizedEvents =
-        normalizeAlchemyAddressActivityPayload(parsedPayload);
+      const parsedWebhookPayload =
+        alchemyWebhookPayloadSchema.safeParse(parsedPayload);
+
+      if (!parsedWebhookPayload.success) {
+        return jsonError(
+          400,
+          "VALIDATION_FAILED",
+          "Provider webhook payload contains invalid fields.",
+          undefined,
+          parsedWebhookPayload.error,
+          formatValidationDetails(parsedWebhookPayload.error),
+        );
+      }
+
+      const normalizedEvents = normalizeAlchemyAddressActivityPayload(
+        parsedWebhookPayload.data,
+      );
       await enqueueNormalizedAlchemyEvents({
         normalizedEvents,
         rawEventId: insertedRawEventId,

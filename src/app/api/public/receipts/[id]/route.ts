@@ -8,6 +8,8 @@ import {
   getClientIp,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
+import { parseRouteParams } from "@/lib/validation/http";
+import { idParamsSchema } from "@/lib/validation/routes";
 
 /**
  * Public receipt API used by the hosted receipt page.
@@ -17,7 +19,13 @@ async function getPublicReceipt(
   context: RouteContext<"/api/public/receipts/[id]">,
 ) {
   try {
-    const { id } = await context.params;
+    const parsedParams = parseRouteParams(await context.params, idParamsSchema);
+
+    if (!parsedParams.success) {
+      return parsedParams.response;
+    }
+
+    const { id } = parsedParams.data;
     const rateLimit = await consumeRateLimit({
       key: buildRateLimitKey({
         policy: RATE_LIMIT_POLICIES.defaultPublicRoute,
