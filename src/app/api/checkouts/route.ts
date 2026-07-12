@@ -1,3 +1,4 @@
+import { PublicApiError, parseIdempotencyKey } from "@/lib/api/public";
 import { jsonError } from "@/lib/dashboard/http";
 import {
   createDashboardCheckout,
@@ -83,9 +84,13 @@ async function createCheckout(request: Request) {
       return parsedBody.response;
     }
 
+    const idempotencyKey = parseIdempotencyKey(
+      request.headers.get("Idempotency-Key"),
+    );
     const body = parsedBody.data;
     const result = await createDashboardCheckout({
       amountUsd: body.amountUsd,
+      idempotencyKey,
       label: body.label,
       orderReference: body.orderReference,
       redirectUrl: body.redirectUrl,
@@ -96,6 +101,17 @@ async function createCheckout(request: Request) {
       status: 201,
     });
   } catch (error) {
+    if (error instanceof PublicApiError) {
+      return jsonError(
+        error.status,
+        error.code,
+        error.message,
+        undefined,
+        error,
+        error.details,
+      );
+    }
+
     return jsonError(
       422,
       "CHECKOUT_CREATE_FAILED",

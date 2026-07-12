@@ -51,12 +51,14 @@ export default function CreateCheckout({
     useState<CreateCheckoutResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [isCreating, startTransition] = useTransition();
   const [origin, setOrigin] = useState("");
   const toast = useToast();
 
   useEffect(() => {
     setOrigin(window.location.origin);
+    setIdempotencyKey(window.crypto.randomUUID());
   }, []);
 
   const amountUsdc = usdToUsdc(amountUsd);
@@ -68,6 +70,12 @@ export default function CreateCheckout({
     }
 
     startTransition(async () => {
+      const requestIdempotencyKey =
+        idempotencyKey ?? window.crypto.randomUUID();
+      if (!idempotencyKey) {
+        setIdempotencyKey(requestIdempotencyKey);
+      }
+
       setSubmitError(null);
       setFieldErrors({});
 
@@ -80,6 +88,7 @@ export default function CreateCheckout({
         }),
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": requestIdempotencyKey,
         },
         method: "POST",
       });
@@ -206,7 +215,10 @@ export default function CreateCheckout({
                     <Button
                       variant="text"
                       size="medium"
-                      onClick={() => setCreatedCheckout(null)}
+                      onClick={() => {
+                        setCreatedCheckout(null);
+                        setIdempotencyKey(window.crypto.randomUUID());
+                      }}
                     >
                       Create another checkout
                     </Button>

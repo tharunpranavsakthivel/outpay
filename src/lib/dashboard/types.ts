@@ -100,6 +100,7 @@ export interface CheckoutListPageData {
 export interface CreateCheckoutFormData {
   label: string;
   amountUsd: string;
+  idempotencyKey?: string | null;
   orderReference: string;
   redirectUrl: string;
 }

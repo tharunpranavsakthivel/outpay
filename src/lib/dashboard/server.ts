@@ -1732,7 +1732,7 @@ function sanitizeWebhookUrl(url: string | null): string | null {
 }
 
 /**
- * Inserts a new dashboard checkout backed by checkout_sessions,
+ * Creates or replays a dashboard checkout backed by checkout_sessions,
  * payment_intents, and checkout_status_history.
  */
 export async function createCheckoutForMerchant(
@@ -1764,9 +1764,6 @@ export async function createCheckoutForMerchant(
   }
 
   const database = await connectToDatabase();
-  const checkoutRef = createCheckoutRef();
-  const publicToken = createPublicToken();
-  const expiresAt = calculateCheckoutExpiryFromNow(new Date(), expiryPolicy);
 
   try {
     const { checkout, wallet } = await database.sql.begin(async (sql) => {
@@ -1787,6 +1784,70 @@ export async function createCheckoutForMerchant(
 
       assertMerchantActive(merchant.status);
 
+      // The merchant row lock serializes same-merchant submissions, so this
+      // lookup and the subsequent insert cannot race around the unique key.
+      if (input.idempotencyKey) {
+        const existingRows = await sql<
+          {
+            address: string;
+            amount_token: string;
+            blockchain_name: string;
+            chain_numeric_id: number;
+            chain_slug: string;
+            checkout_ref: string;
+            expires_at: string;
+            id: string;
+            public_token: string;
+            status: string;
+            token_contract: string;
+            token_id: string;
+            token_symbol: string;
+            wallet_id: string;
+          }[]
+        >`
+          select
+            cs.id::text as id,
+            cs.checkout_ref,
+            cs.public_token,
+            cs.amount_token::text as amount_token,
+            cs.expires_at::text as expires_at,
+            cs.status::text as status,
+            wa.id as wallet_id,
+            wa.address,
+            b.display_name as blockchain_name,
+            b.slug::text as chain_slug,
+            b.chain_numeric_id,
+            t.contract_address as token_contract,
+            t.id as token_id,
+            t.symbol::text as token_symbol
+          from checkout_sessions cs
+          join wallet_addresses wa on wa.id = cs.recipient_wallet_id
+          join blockchains b on b.id = wa.chain_id
+          join tokens t on t.id = cs.token_id
+          where cs.merchant_id = ${input.merchantId}::uuid
+            and cs.idempotency_key = ${input.idempotencyKey}
+          limit 1
+        `;
+
+        const existingCheckout = existingRows[0];
+
+        if (existingCheckout) {
+          return {
+            checkout: existingCheckout,
+            wallet: {
+              address: existingCheckout.address,
+              blockchainName: existingCheckout.blockchain_name,
+              chainSlug: existingCheckout.chain_slug,
+              chainNumericId: existingCheckout.chain_numeric_id,
+              tokenContract: existingCheckout.token_contract,
+              tokenId: existingCheckout.token_id,
+              tokenSymbol: existingCheckout.token_symbol,
+              walletId: existingCheckout.wallet_id,
+            },
+          };
+        }
+      }
+
       const wallet = await queryPrimaryWalletContext(sql, input.merchantId);
 
       if (!wallet) {
@@ -1795,12 +1856,21 @@ export async function createCheckoutForMerchant(
         );
       }
 
+      const checkoutRef = createCheckoutRef();
+      const publicToken = createPublicToken();
+      const expiresAt = calculateCheckoutExpiryFromNow(
+        new Date(),
+        expiryPolicy,
+      );
+
       const rows = await sql<
         {
           amount_token: string;
           checkout_ref: string;
+          expires_at: string;
           id: string;
           public_token: string;
+          status: string;
         }[]
       >`
         insert into checkout_sessions (
@@ -1850,7 +1920,9 @@ export async function createCheckoutForMerchant(
           id::text as id,
           checkout_ref,
           public_token,
-          amount_token::text
+          amount_token::text as amount_token,
+          expires_at::text as expires_at,
+          status::text as status
       `;
 
       const createdCheckout = rows[0];
@@ -1924,20 +1996,20 @@ export async function createCheckoutForMerchant(
     });
 
     return {
-      amount: Number(amountUsd).toFixed(2),
+      amount: Number(checkout.amount_token).toFixed(2),
       chain: wallet.chainSlug,
-      checkoutRef,
+      checkoutRef: checkout.checkout_ref,
       checkoutSessionId: checkout.id,
-      checkoutUrlPath: `/checkout/${publicToken}`,
+      checkoutUrlPath: `/checkout/${checkout.public_token}`,
       currency: wallet.tokenSymbol,
-      expiresAt: expiresAt.toISOString(),
-      paymentUrlPath: `/checkout/${publicToken}`,
-      publicToken,
+      expiresAt: checkout.expires_at,
+      paymentUrlPath: `/checkout/${checkout.public_token}`,
+      publicToken: checkout.public_token,
       recipient: {
         address: wallet.address,
         tokenContract: wallet.tokenContract,
       },
-      status: mapCheckoutStatusForApi("pending"),
+      status: mapCheckoutStatusForApi(checkout.status),
     };
   } finally {
     await database.release();
@@ -1953,6 +2025,7 @@ export async function createDashboardCheckout(
     actorType: "user",
     amount: input.amountUsd,
     createdByUserId: context.userId,
+    idempotencyKey: input.idempotencyKey,
     label: input.label,
     merchantId: context.merchant.merchantId,
     orderReference: input.orderReference,
