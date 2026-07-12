@@ -10,6 +10,7 @@ import { reportDatabaseConnectionFailure } from "@/lib/observability/alerts";
 import {
   type DatabaseUrlSource,
   formatDatabaseError,
+  getDatabasePoolMax,
   resolveDatabaseConnectionCandidates,
 } from "./config";
 
@@ -26,32 +27,94 @@ export class DatabaseConnectionError extends Error {
   }
 }
 
+let sharedDatabaseClient: ConnectedDatabaseClient | null = null;
+let sharedDatabaseClientPromise: Promise<ConnectedDatabaseClient> | null = null;
+
 /**
- * Opens a PostgreSQL connection using the first reachable configured target.
+ * Returns the process-wide PostgreSQL pool using the first reachable
+ * configured target.
  *
  * Returns:
- * - `ConnectedDatabaseClient` with a ready-to-use `postgres` client and a
- *   `release` callback for cleanup.
+ * - `ConnectedDatabaseClient` with a ready-to-use `postgres` pool and a
+ *   request-compatible no-op `release` callback.
  *
  * Throws:
  * - `DatabaseConnectionError` when no configured target can be reached.
  */
 export async function connectToDatabase(): Promise<ConnectedDatabaseClient> {
+  if (sharedDatabaseClient) {
+    return sharedDatabaseClient;
+  }
+
+  const initialization =
+    sharedDatabaseClientPromise ?? initializeDatabaseClient();
+  sharedDatabaseClientPromise = initialization;
+
+  try {
+    sharedDatabaseClient = await initialization;
+    return sharedDatabaseClient;
+  } finally {
+    if (sharedDatabaseClientPromise === initialization) {
+      sharedDatabaseClientPromise = null;
+    }
+  }
+}
+
+/**
+ * Closes the shared pool during one-shot command or process shutdown.
+ *
+ * Returns:
+ * - A promise that resolves after the pool has released its PostgreSQL
+ *   connections, or after an in-flight initialization has failed.
+ *
+ * Throws:
+ * - The underlying postgres.js shutdown error when an established pool cannot
+ *   close within its bounded timeout.
+ */
+export async function closeDatabasePool(): Promise<void> {
+  const initialization = sharedDatabaseClientPromise;
+  const establishedClient = sharedDatabaseClient;
+
+  sharedDatabaseClient = null;
+  sharedDatabaseClientPromise = null;
+
+  const client =
+    establishedClient ??
+    (initialization ? await initialization.catch(() => null) : null);
+
+  if (client) {
+    await client.sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * Creates and verifies the process-wide app pool using the first reachable
+ * configured target.
+ *
+ * Returns:
+ * - A shared `ConnectedDatabaseClient` whose postgres.js pool remains alive
+ *   for the lifetime of the server process.
+ *
+ * Throws:
+ * - `DatabaseConnectionError` when no configured target can be reached.
+ */
+async function initializeDatabaseClient(): Promise<ConnectedDatabaseClient> {
   const candidates = resolveDatabaseConnectionCandidates();
+  const poolMax = getDatabasePoolMax();
   const failures: string[] = [];
 
   for (const candidate of candidates) {
     let sql: Sql<Record<string, unknown>> | null = null;
 
     try {
-      sql = createPostgresClient(candidate.url);
+      sql = createPostgresClient(candidate.url, poolMax);
       await sql`select 1`;
       const connectedSql = sql;
 
       return {
-        release: async () => {
-          await connectedSql.end({ timeout: 5 });
-        },
+        // Query ownership and backpressure are managed by postgres.js. A
+        // request-level release must not close the process-wide pool.
+        release: async () => undefined,
         source: candidate.source,
         sql: connectedSql,
       };
@@ -70,11 +133,16 @@ export async function connectToDatabase(): Promise<ConnectedDatabaseClient> {
 
 function createPostgresClient(
   connectionString: string,
+  poolMax: number,
 ): Sql<Record<string, unknown>> {
   const baseOptions = {
     connect_timeout: 10,
-    idle_timeout: 5,
-    max: 1,
+    // Keep idle connections available for the next request or worker job;
+    // process shutdown is the only lifecycle boundary that should call end.
+    idle_timeout: 0,
+    // postgres.js queues queries when all pool connections are busy, providing
+    // bounded backpressure instead of opening unbounded connections.
+    max: poolMax,
   } as const;
 
   try {

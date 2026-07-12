@@ -11,7 +11,10 @@
 
 import { createInterface } from "node:readline/promises";
 
-import { connectToDatabase } from "../../src/lib/database/client";
+import {
+  closeDatabasePool,
+  connectToDatabase,
+} from "../../src/lib/database/client";
 import {
   type DatabaseConnectionCandidate,
   resolveDatabaseConnectionCandidates,
@@ -395,7 +398,7 @@ async function loadTableRowCounts(
 
     return counts;
   } finally {
-    await database.release();
+    await closeDatabasePool();
   }
 }
 
@@ -457,7 +460,7 @@ async function clearTables(tables: TableRowCount[]): Promise<void> {
       );
     });
   } finally {
-    await database.release();
+    await closeDatabasePool();
   }
 }
 

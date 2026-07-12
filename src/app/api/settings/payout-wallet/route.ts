@@ -4,6 +4,7 @@
 import { after } from "next/server";
 import { jsonError } from "@/lib/dashboard/http";
 import {
+  ForbiddenRoleError,
   getCurrentMerchantIdForRateLimit,
   replacePrimaryWallet,
 } from "@/lib/dashboard/server";
@@ -67,6 +68,10 @@ async function updatePayoutWallet(request: Request) {
 
     return Response.json(response);
   } catch (error) {
+    if (error instanceof ForbiddenRoleError) {
+      return jsonError(403, error.code, error.message, undefined, error);
+    }
+
     return jsonError(
       422,
       "PAYOUT_WALLET_UPDATE_FAILED",

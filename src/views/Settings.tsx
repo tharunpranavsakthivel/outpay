@@ -29,6 +29,9 @@ export default function Settings({
 }: {
   initialData: StoreSettingsData;
 }) {
+  const canManageSensitiveActions =
+    initialData.merchant.role === "owner" ||
+    initialData.merchant.role === "admin";
   const [storeName, setStoreName] = useState(initialData.merchant.storeName);
   const [storeDesc, setStoreDesc] = useState(
     initialData.merchant.description ?? "",
@@ -104,6 +107,8 @@ export default function Settings({
   };
 
   const saveWallet = () => {
+    if (!canManageSensitiveActions) return;
+
     startTransition(async () => {
       const response = await fetch("/api/settings/payout-wallet", {
         body: JSON.stringify({
@@ -136,6 +141,8 @@ export default function Settings({
   };
 
   const saveWebhook = () => {
+    if (!canManageSensitiveActions) return;
+
     startTransition(async () => {
       const response = await fetch("/api/developers/webhook-endpoint", {
         body: JSON.stringify({
@@ -191,6 +198,8 @@ export default function Settings({
   };
 
   const confirmDeactivate = () => {
+    if (!canManageSensitiveActions) return;
+
     startTransition(async () => {
       const response = await fetch("/api/settings/store-status", {
         body: JSON.stringify({
@@ -305,6 +314,12 @@ export default function Settings({
                 <Button
                   variant="outline"
                   size="medium"
+                  disabled={!canManageSensitiveActions}
+                  title={
+                    canManageSensitiveActions
+                      ? undefined
+                      : "Only owners and admins can change the payout wallet."
+                  }
                   onClick={() => {
                     setModal("wallet");
                     setNewWalletAddress("");
@@ -331,6 +346,7 @@ export default function Settings({
               <Input
                 label="Endpoint URL"
                 value={webhookUrl}
+                disabled={!canManageSensitiveActions}
                 onChange={(event) => setWebhookUrl(event.target.value)}
               />
               <div className="text-xs text-foreground-lighter">
@@ -353,7 +369,12 @@ export default function Settings({
                 <Button
                   variant="primary"
                   size="medium"
-                  disabled={isPending}
+                  disabled={isPending || !canManageSensitiveActions}
+                  title={
+                    canManageSensitiveActions
+                      ? undefined
+                      : "Only owners and admins can update webhook configuration."
+                  }
                   onClick={saveWebhook}
                 >
                   Save webhook
@@ -399,6 +420,12 @@ export default function Settings({
               <Button
                 variant="danger"
                 size="medium"
+                disabled={!canManageSensitiveActions}
+                title={
+                  canManageSensitiveActions
+                    ? undefined
+                    : "Only owners and admins can deactivate the store."
+                }
                 onClick={() => {
                   setModal("deactivate");
                   setDeactivateConfirmText("");

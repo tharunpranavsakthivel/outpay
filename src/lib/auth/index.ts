@@ -12,7 +12,12 @@ import { nextCookies } from "better-auth/next-js";
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
 import { connectToDatabase } from "@/lib/database/client";
-import { getPrimaryDatabaseConnectionCandidate } from "@/lib/database/config";
+import {
+  getAuthPoolMax,
+  getPrimaryDatabaseConnectionCandidate,
+} from "@/lib/database/config";
+import { sendResetPasswordEmail } from "@/lib/email/send";
+import { logger } from "@/lib/logging/logger";
 
 const AUTH_BASE_URL =
   process.env.BETTER_AUTH_URL?.trim() ||
@@ -30,7 +35,7 @@ if (!AUTH_SECRET) {
 
 const authPool = new Pool({
   connectionString: getPrimaryDatabaseConnectionCandidate().url,
-  max: 10,
+  max: getAuthPoolMax(),
 });
 
 const authDatabase = new Kysely({
@@ -375,12 +380,20 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
-    sendResetPassword: async () => {
-      /**
-       * Email delivery is intentionally left unimplemented in this prototype.
-       * The endpoint still accepts reset requests so the UI can reflect the
-       * request state without depending on a mail provider.
-       */
+    resetPasswordTokenExpiresIn: 60 * 60,
+    sendResetPassword: async ({ user, url }) => {
+      try {
+        await sendResetPasswordEmail({
+          email: user.email,
+          name: user.name,
+          url,
+        });
+      } catch (error) {
+        // Better Auth keeps the response generic for unknown and known emails;
+        // preserve that contract while recording delivery failures for ops.
+        logger.error({ err: error }, "Password reset email delivery failed");
+        throw error;
+      }
     },
   },
   plugins: [nextCookies()],

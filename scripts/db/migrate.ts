@@ -8,7 +8,10 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { connectToDatabase } from "../../src/lib/database/client";
+import {
+  closeDatabasePool,
+  connectToDatabase,
+} from "../../src/lib/database/client";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIRECTORY = path.resolve(__dirname, "../../db/migrations");
@@ -42,7 +45,7 @@ class MigrationError extends Error {
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "up";
   const stepCount = parseOptionalStepCount(process.argv[3]);
-  const { release, source, sql } = await connectToDatabase();
+  const { source, sql } = await connectToDatabase();
 
   try {
     switch (command) {
@@ -63,7 +66,7 @@ async function main(): Promise<void> {
 
     console.log(`Migration command "${command}" completed using ${source}.`);
   } finally {
-    await release();
+    await closeDatabasePool();
   }
 }
 

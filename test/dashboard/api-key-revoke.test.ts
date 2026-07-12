@@ -28,6 +28,7 @@ describe("revokeApiKey", () => {
         getMerchantContext: async () =>
           ({
             merchant: { merchantId: "merchant_123" },
+            role: "owner",
             userId: "user_123",
           }) as never,
         recordAuditLog,
@@ -78,6 +79,7 @@ describe("revokeApiKey", () => {
           getMerchantContext: async () =>
             ({
               merchant: { merchantId: "merchant_123" },
+              role: "owner",
             }) as never,
           updateOwnedApiKey,
         },

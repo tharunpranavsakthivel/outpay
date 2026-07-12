@@ -1,5 +1,6 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
+  ForbiddenRoleError,
   getCurrentMerchantIdForRateLimit,
   revokeApiKey,
 } from "@/lib/dashboard/server";
@@ -62,6 +63,10 @@ async function updateApiKey(
       },
     );
   } catch (error) {
+    if (error instanceof ForbiddenRoleError) {
+      return jsonError(403, error.code, error.message, undefined, error);
+    }
+
     const message =
       error instanceof Error ? error.message : "Unable to update the API key.";
     const status = message.includes("not found") ? 404 : 422;

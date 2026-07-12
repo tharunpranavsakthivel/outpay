@@ -1,6 +1,7 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
   createApiKey,
+  ForbiddenRoleError,
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
 } from "@/lib/dashboard/server";
@@ -41,6 +42,10 @@ async function getApiKeys() {
       merchant: data.merchant,
     });
   } catch (error) {
+    if (error instanceof ForbiddenRoleError) {
+      return jsonError(403, error.code, error.message, undefined, error);
+    }
+
     return jsonError(
       400,
       "API_KEYS_LOAD_FAILED",

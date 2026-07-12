@@ -1,6 +1,7 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
   deactivateStore,
+  ForbiddenRoleError,
   getCurrentMerchantIdForRateLimit,
 } from "@/lib/dashboard/server";
 import { withRequestLogging } from "@/lib/logging/logger";
@@ -53,6 +54,10 @@ async function updateStoreStatus(request: Request) {
       }),
     );
   } catch (error) {
+    if (error instanceof ForbiddenRoleError) {
+      return jsonError(403, error.code, error.message, undefined, error);
+    }
+
     return jsonError(
       422,
       "STORE_STATUS_UPDATE_FAILED",

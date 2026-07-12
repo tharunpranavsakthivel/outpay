@@ -3,7 +3,10 @@
  * have been applied successfully.
  */
 
-import { connectToDatabase } from "../../src/lib/database/client";
+import {
+  closeDatabasePool,
+  connectToDatabase,
+} from "../../src/lib/database/client";
 
 const REQUIRED_EXTENSIONS = ["citext", "pgcrypto"] as const;
 const REQUIRED_ENUMS = [
@@ -182,7 +185,7 @@ const REQUIRED_TRIGGERS = [
  * Runs catalog checks against the active database connection.
  */
 async function main(): Promise<void> {
-  const { release, source, sql } = await connectToDatabase();
+  const { source, sql } = await connectToDatabase();
 
   try {
     await assertNamedObjectsExist(
@@ -266,7 +269,7 @@ async function main(): Promise<void> {
 
     console.log(`Schema validation succeeded using ${source}.`);
   } finally {
-    await release();
+    await closeDatabasePool();
   }
 }
 

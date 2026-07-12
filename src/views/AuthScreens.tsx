@@ -4,7 +4,7 @@ import { AlertTriangle, Check, ImagePlus, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
 import { NON_CUSTODIAL_DISCLAIMER } from "@/lib/legal/compliance";
 import type { WalletSignatureProof } from "@/lib/wallet/browser-wallet";
@@ -441,16 +441,25 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
 }
 
 /**
- * ForgotPasswordScreen renders the reset-request form and success state.
+ * ForgotPasswordScreen renders the reset-request and token-confirmation forms.
  *
  * @returns Forgot-password route content.
  */
 export function ForgotPasswordScreen() {
   const [resetSent, setResetSent] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [passwordReset, setPasswordReset] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("token");
+    setResetToken(token?.trim() || null);
+  }, []);
 
   const requestReset = () => {
     startTransition(async () => {
@@ -483,11 +492,112 @@ export function ForgotPasswordScreen() {
     });
   };
 
+  const confirmReset = () => {
+    if (!resetToken) {
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      const message = "Your new password must be at least 8 characters.";
+      setErrorMessage(message);
+      toast.error(message);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      const message = "Your password confirmation does not match.";
+      setErrorMessage(message);
+      toast.error(message);
+      return;
+    }
+
+    startTransition(async () => {
+      setErrorMessage(null);
+
+      try {
+        const response = await authClient.resetPassword({
+          newPassword,
+          token: resetToken,
+        });
+
+        if (response.error) {
+          const message =
+            response.error.message ||
+            "This password reset link is invalid or expired.";
+          setErrorMessage(message);
+          toast.error(message);
+          return;
+        }
+
+        setPasswordReset(true);
+        toast.success("Password updated.");
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to reset your password.";
+        setErrorMessage(message);
+        toast.error(message);
+      }
+    });
+  };
+
   return (
     <AuthPageFrame>
       <AuthShell>
         <Card>
-          {!resetSent ? (
+          {resetToken && !passwordReset ? (
+            <>
+              <CardHeader>
+                <CardTitle>Choose a new password</CardTitle>
+                <CardDescription>
+                  Set a new password for your Outpay account.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3.5 border-b-0">
+                <Input
+                  label="New password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+                <Input
+                  label="Confirm new password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                />
+                {errorMessage && (
+                  <div className="text-sm text-destructive">{errorMessage}</div>
+                )}
+              </CardContent>
+              <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
+                <Button
+                  variant="primary"
+                  size="medium"
+                  block
+                  disabled={!newPassword || !confirmPassword || isPending}
+                  onClick={confirmReset}
+                >
+                  {isPending ? "Updating..." : "Update password"}
+                </Button>
+              </CardContent>
+            </>
+          ) : passwordReset ? (
+            <CardContent className="flex flex-col items-center gap-3 border-b-0 px-6 py-9 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent">
+                <Check size={20} className="opacity-85" />
+              </div>
+              <div className="text-[15px] font-semibold">Password updated</div>
+              <div className="max-w-[300px] text-sm leading-[1.5] text-foreground-lighter">
+                Your password has been changed. You can now log in with your new
+                password.
+              </div>
+              <div className="mt-2">
+                <AuthInlineLink href="/login">Back to log in</AuthInlineLink>
+              </div>
+            </CardContent>
+          ) : !resetSent ? (
             <>
               <CardHeader>
                 <CardTitle>Reset your password</CardTitle>
@@ -534,11 +644,12 @@ export function ForgotPasswordScreen() {
                 <strong className="text-foreground font-medium">
                   {forgotEmail || "you@store.com"}
                 </strong>
-                . Email delivery is not configured in this prototype yet, so no
-                reset email was sent.
+                . If an account exists for this address, you&apos;ll receive a
+                reset link shortly. Check your spam folder if it doesn&apos;t
+                arrive.
               </div>
               <div className="text-xs text-foreground-lighter mt-1">
-                You can submit another request after mail delivery is wired up.
+                You can submit another request if you need a new link.
               </div>
               <div className="mt-2">
                 <AuthInlineLink href="/login">Back to log in</AuthInlineLink>

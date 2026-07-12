@@ -5,8 +5,18 @@
 
 export type DashboardStatus = "paid" | "pending" | "failed" | "expired";
 
+export type MerchantRole =
+  | "owner"
+  | "admin"
+  | "developer"
+  | "finance"
+  | "support"
+  | "member"
+  | "viewer";
+
 export interface MerchantShellData {
   merchantId: string;
+  role: MerchantRole;
   publicSlug: string;
   storeName: string;
   supportEmail: string | null;

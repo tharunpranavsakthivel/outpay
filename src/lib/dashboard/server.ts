@@ -44,6 +44,7 @@ import type {
   DashboardStatus,
   DevelopersPageData,
   FirstLoginPageData,
+  MerchantRole,
   MerchantShellData,
   NotificationItem,
   PaymentListItem,
@@ -89,9 +90,10 @@ interface AuditLogInput {
   resourceType: AuditResourceType;
 }
 
-interface MerchantContext {
+export interface MerchantContext {
   email: string;
   merchant: MerchantShellData;
+  role: MerchantRole;
   userId: string;
 }
 
@@ -203,6 +205,52 @@ export class MissingMerchantContextError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "MissingMerchantContextError";
+  }
+}
+
+/**
+ * Identifies a request that has no authenticated user for merchant-scoped data.
+ * Route pages use this typed error to send the visitor to login while allowing
+ * other unexpected data-loading failures to reach the error boundary.
+ */
+export class UnauthenticatedMerchantContextError extends Error {
+  constructor(message = "Sign in before using the merchant dashboard.") {
+    super(message);
+    this.name = "UnauthenticatedMerchantContextError";
+  }
+}
+
+export class ForbiddenRoleError extends Error {
+  readonly code = "FORBIDDEN_ROLE" as const;
+
+  constructor(
+    message = "Only merchant owners and admins can perform this action.",
+  ) {
+    super(message);
+    this.name = "ForbiddenRoleError";
+  }
+}
+
+/**
+ * Ensures the authenticated merchant member has one of the roles required for
+ * a sensitive merchant mutation.
+ *
+ * Parameters:
+ * - context: Authenticated merchant context containing the caller role.
+ * - allowedRoles: Roles permitted to continue the mutation.
+ *
+ * Returns:
+ * - Nothing when authorization succeeds.
+ *
+ * Throws:
+ * - `ForbiddenRoleError` when the caller is authenticated but under-privileged.
+ */
+export function requireRole(
+  context: MerchantContext,
+  allowedRoles: readonly MerchantRole[],
+): void {
+  if (!allowedRoles.includes(context.role)) {
+    throw new ForbiddenRoleError();
   }
 }
 
@@ -370,7 +418,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
   const email = session?.user.email?.trim().toLowerCase();
 
   if (!email) {
-    throw new Error("Sign in before using the merchant dashboard.");
+    throw new UnauthenticatedMerchantContextError();
   }
 
   const database = await connectToDatabase();
@@ -383,6 +431,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
         full_name: string | null;
         logo_asset_id: string | null;
         merchant_id: string;
+        role: MerchantRole;
         public_slug: string;
         status: string;
         store_name: string;
@@ -399,6 +448,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
         up.avatar_color,
         up.two_factor_status,
         m.id as merchant_id,
+        mm.role::text as role,
         m.public_slug::text as public_slug,
         m.display_name as store_name,
         m.support_email::text as support_email,
@@ -442,6 +492,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
                 full_name: string | null;
                 logo_asset_id: string | null;
                 merchant_id: string;
+                role: MerchantRole;
                 public_slug: string;
                 status: string;
                 store_name: string;
@@ -458,6 +509,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
                 up.avatar_color,
                 up.two_factor_status,
                 m.id as merchant_id,
+                'owner'::text as role,
                 m.public_slug::text as public_slug,
                 m.display_name as store_name,
                 m.support_email::text as support_email,
@@ -495,6 +547,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
           ? `/api/store-logo/${fallbackOwner.logo_asset_id}`
           : null,
         merchantId: fallbackOwner.merchant_id,
+        role: fallbackOwner.role,
         publicSlug: fallbackOwner.public_slug,
         status: fallbackOwner.status,
         storeName: fallbackOwner.store_name,
@@ -504,6 +557,7 @@ async function getMerchantContext(): Promise<MerchantContext> {
         userFullName: fallbackOwner.full_name,
         verificationStatus: fallbackOwner.verification_status,
       },
+      role: fallbackOwner.role,
       userId: fallbackOwner.user_id,
     };
   } finally {
@@ -2410,6 +2464,7 @@ export async function replacePrimaryWallet(input: {
   walletSignatureTimestampMs: number;
 }) {
   const context = await getMerchantContext();
+  requireRole(context, ["owner", "admin"]);
   const currentWallet = await getPrimaryWalletContext(
     context.merchant.merchantId,
   );
@@ -2553,6 +2608,7 @@ export async function replacePrimaryWallet(input: {
  */
 export async function upsertWebhookEndpoint(input: { url: string }) {
   const context = await getMerchantContext();
+  requireRole(context, ["owner", "admin"]);
   const database = await connectToDatabase();
   const url = await validateMerchantWebhookUrl(input.url);
 
@@ -2870,6 +2926,7 @@ export async function retryWebhookDelivery(input: {
  */
 export async function deactivateStore(input: { confirmationText: string }) {
   const context = await getMerchantContext();
+  requireRole(context, ["owner", "admin"]);
 
   if (input.confirmationText.trim() !== context.merchant.storeName) {
     throw new Error("Type the exact store name to confirm deactivation.");
@@ -3302,6 +3359,7 @@ export async function createApiKey(input: {
   name: string;
 }) {
   const context = await getMerchantContext();
+  requireRole(context, ["owner", "admin"]);
   const database = await connectToDatabase();
   const name = input.name.trim();
 
@@ -3458,6 +3516,7 @@ export async function revokeApiKey(
   },
 ): Promise<ApiKeyListItem> {
   const context = await dependencies.getMerchantContext();
+  requireRole(context, ["owner", "admin"]);
 
   const executeMutation = async (sql?: AuditSql) => {
     const apiKey = await dependencies.updateOwnedApiKey({

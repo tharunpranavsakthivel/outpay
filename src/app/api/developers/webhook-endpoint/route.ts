@@ -1,5 +1,6 @@
 import { jsonError } from "@/lib/dashboard/http";
 import {
+  ForbiddenRoleError,
   getCurrentMerchantIdForRateLimit,
   getDevelopersPageData,
   queueTestWebhookDelivery,
@@ -45,6 +46,10 @@ async function getWebhookEndpoint() {
       webhookUrl: data.webhookUrl,
     });
   } catch (error) {
+    if (error instanceof ForbiddenRoleError) {
+      return jsonError(403, error.code, error.message, undefined, error);
+    }
+
     return jsonError(
       400,
       "WEBHOOK_ENDPOINT_LOAD_FAILED",

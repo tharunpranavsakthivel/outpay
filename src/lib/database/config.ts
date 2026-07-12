@@ -16,6 +16,10 @@ export const DATABASE_PART_ENV_KEYS = [
   "PGPASSWORD",
 ] as const;
 
+const DEFAULT_DATABASE_POOL_MAX = 10;
+const DEFAULT_AUTH_POOL_MAX = 5;
+const MAX_CONFIGURED_POOL_SIZE = 100;
+
 export type DatabaseUrlSource =
   | (typeof DATABASE_URL_ENV_KEYS)[number]
   | "PG_COMPONENTS";
@@ -92,6 +96,48 @@ export function getPrimaryDatabaseConnectionCandidate(
 }
 
 /**
+ * Resolves the maximum number of connections reserved by the app pool.
+ *
+ * Parameters:
+ * - env: `NodeJS.ProcessEnv` containing the optional pool-size override.
+ *
+ * Returns:
+ * - Positive app-pool connection limit, defaulting to 10.
+ *
+ * Throws:
+ * - `DatabaseConfigurationError` when the override is not a bounded integer.
+ */
+export function getDatabasePoolMax(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return parsePoolMax(
+    env.OUTPAY_DATABASE_POOL_MAX,
+    DEFAULT_DATABASE_POOL_MAX,
+    "OUTPAY_DATABASE_POOL_MAX",
+  );
+}
+
+/**
+ * Resolves the maximum number of connections reserved by Better Auth.
+ *
+ * Parameters:
+ * - env: `NodeJS.ProcessEnv` containing the optional pool-size override.
+ *
+ * Returns:
+ * - Positive Better Auth pool connection limit, defaulting to 5.
+ *
+ * Throws:
+ * - `DatabaseConfigurationError` when the override is not a bounded integer.
+ */
+export function getAuthPoolMax(env: NodeJS.ProcessEnv = process.env): number {
+  return parsePoolMax(
+    env.OUTPAY_AUTH_POOL_MAX,
+    DEFAULT_AUTH_POOL_MAX,
+    "OUTPAY_AUTH_POOL_MAX",
+  );
+}
+
+/**
  * Converts connection failures into a short, non-secret-bearing string.
  *
  * Parameters:
@@ -106,6 +152,32 @@ export function formatDatabaseError(error: unknown): string {
   }
 
   return String(error);
+}
+
+function parsePoolMax(
+  rawValue: string | undefined,
+  defaultValue: number,
+  environmentKey: string,
+): number {
+  const value = rawValue?.trim();
+
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsedValue = Number(value);
+
+  if (
+    !Number.isInteger(parsedValue) ||
+    parsedValue < 1 ||
+    parsedValue > MAX_CONFIGURED_POOL_SIZE
+  ) {
+    throw new DatabaseConfigurationError(
+      `${environmentKey} must be an integer between 1 and ${MAX_CONFIGURED_POOL_SIZE}.`,
+    );
+  }
+
+  return parsedValue;
 }
 
 function buildUrlFromPgComponents(

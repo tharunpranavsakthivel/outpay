@@ -74,6 +74,9 @@ export default function Developers({
 }: {
   initialData: DevelopersPageData;
 }) {
+  const canManageSensitiveActions =
+    initialData.merchant.role === "owner" ||
+    initialData.merchant.role === "admin";
   const [activeTab, setActiveTab] = useState<"keys" | "webhooks" | "docs">(
     "keys",
   );
@@ -97,6 +100,8 @@ export default function Developers({
   );
 
   const createKey = () => {
+    if (!canManageSensitiveActions) return;
+
     startTransition(async () => {
       setErrorMessage(null);
       setSaveMessage(null);
@@ -141,6 +146,8 @@ export default function Developers({
   };
 
   const saveWebhook = () => {
+    if (!canManageSensitiveActions) return;
+
     startTransition(async () => {
       setErrorMessage(null);
       setSaveMessage(null);
@@ -265,6 +272,8 @@ export default function Developers({
   };
 
   const revokeKey = (apiKeyId: string) => {
+    if (!canManageSensitiveActions) return;
+
     if (
       !window.confirm(
         "Revoke this API key? Requests using this secret will fail immediately.",
@@ -410,7 +419,12 @@ export default function Developers({
                     <Button
                       variant="primary"
                       size="medium"
-                      disabled={isPending}
+                      disabled={isPending || !canManageSensitiveActions}
+                      title={
+                        canManageSensitiveActions
+                          ? undefined
+                          : "Only owners and admins can create API keys."
+                      }
                       onClick={createKey}
                     >
                       Create {mode} key
@@ -483,7 +497,14 @@ export default function Developers({
                               <Button
                                 variant="outline"
                                 size="small"
-                                disabled={isPending}
+                                disabled={
+                                  isPending || !canManageSensitiveActions
+                                }
+                                title={
+                                  canManageSensitiveActions
+                                    ? undefined
+                                    : "Only owners and admins can revoke API keys."
+                                }
                                 onClick={() => revokeKey(apiKey.id)}
                               >
                                 Revoke
@@ -529,6 +550,7 @@ export default function Developers({
                   <Input
                     label="Endpoint URL"
                     value={webhookUrl}
+                    disabled={!canManageSensitiveActions}
                     onChange={(event) => setWebhookUrl(event.target.value)}
                   />
                   <div className="text-sm">
@@ -559,7 +581,12 @@ export default function Developers({
                     <Button
                       variant="primary"
                       size="medium"
-                      disabled={isPending}
+                      disabled={isPending || !canManageSensitiveActions}
+                      title={
+                        canManageSensitiveActions
+                          ? undefined
+                          : "Only owners and admins can update webhook configuration."
+                      }
                       onClick={saveWebhook}
                     >
                       Save & rotate secret
