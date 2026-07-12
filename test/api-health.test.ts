@@ -31,6 +31,7 @@ describe("GET /api/health", () => {
     })(healthRequest);
 
     expect(response.status).toBe(503);
+    const responseBody = await response.clone().text();
     expect(await response.json()).toEqual({
       dependencies: {
         database: { status: "down" },
@@ -38,7 +39,6 @@ describe("GET /api/health", () => {
       status: "unhealthy",
     });
 
-    const responseBody = await response.clone().text();
     expect(responseBody).not.toContain("bad-postgres-host");
     expect(responseBody).not.toContain("secret");
   });

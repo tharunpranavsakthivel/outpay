@@ -5,8 +5,12 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(import.meta.dir, "../..");
+const ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 async function readSource(relativePath: string): Promise<string> {
   return readFile(path.join(ROOT, relativePath), "utf8");

@@ -38,7 +38,7 @@ to 30 minutes with a 10 minute detected-payment grace window; override
 bun run dev
 ```
 
-Open `http://localhost:3000` after the server starts.
+Open `http://localhost:3001` after the server starts.
 
 ## Database setup
 
@@ -81,6 +81,38 @@ bun run db:migrate:down
 - The schema migration does not seed pricing plans, blockchains, or tokens because this task is limited to structure creation.
 
 ## Quality checks
+
+Run the Vitest unit and integration-adjacent suites with:
+
+```bash
+bun run test
+```
+
+Use watch mode during development:
+
+```bash
+bun run test:watch
+```
+
+Run the Playwright browser smoke suite (the local app is started on port 3001):
+
+```bash
+bun run test:e2e
+```
+
+For integration tests that need a real PostgreSQL schema, start the disposable
+test database first. It uses only the local fixture credentials from
+`docker-compose.test.yml`, stores data in tmpfs, and is removed with `down -v`:
+
+```bash
+bun run test:db:up
+DATABASE_URL=postgresql://outpay_test:outpay_test_password@127.0.0.1:55432/outpay_test bun run db:migrate
+bun run test:db:down
+```
+
+Never point this workflow at `DATABASE_URL`, `DATABASE_PUBLIC_URL`, Railway,
+or any production database. See `docs/adr/001-test-framework.md` for the
+runner and migration-test decisions.
 
 Run the formatter and linter with:
 

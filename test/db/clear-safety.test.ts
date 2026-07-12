@@ -8,6 +8,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 
 const CLEAR_SCRIPT_PATH = new URL("../../scripts/db/clear.ts", import.meta.url)
   .pathname;
@@ -22,8 +23,9 @@ const CLEAR_SCRIPT_PATH = new URL("../../scripts/db/clear.ts", import.meta.url)
 test("refuses execute mode for production-pattern database hosts", async () => {
   const databaseUrl =
     "postgresql://user:password@production.railway.app:5432/outpay";
-  const child = Bun.spawn(
-    ["bun", "--env-file=/dev/null", CLEAR_SCRIPT_PATH, "--execute"],
+  const child = spawn(
+    "bun",
+    ["--env-file=/dev/null", CLEAR_SCRIPT_PATH, "--execute"],
     {
       cwd: process.cwd(),
       env: {
@@ -37,16 +39,24 @@ test("refuses execute mode for production-pattern database hosts", async () => {
         PGUSER: "",
         PRODUCTION_DB_HOST_PATTERN: "(^|\\.)railway\\.app$",
       },
-      stderr: "pipe",
-      stdout: "pipe",
+      stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  let standardOutput = "";
+  let errorOutput = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    standardOutput += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    errorOutput += chunk;
+  });
 
-  const [exitCode, standardOutput, errorOutput] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? -1));
+  });
   const output = `${standardOutput}\n${errorOutput}`;
 
   expect(exitCode).not.toBe(0);

@@ -5,15 +5,21 @@
  * order so `db:migrate down` can safely undo `db:migrate up`.
  */
 
+import { describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "bun:test";
+import { fileURLToPath } from "node:url";
 
-const MIGRATIONS_DIRECTORY = path.resolve(import.meta.dir, "../../db/migrations");
+const MIGRATIONS_DIRECTORY = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../db/migrations",
+);
 const TARGET_MIGRATION = "0004_payment_pipeline_support";
 
-async function readMigrationFile(suffix: "up.sql" | "down.sql"): Promise<string> {
+async function readMigrationFile(
+  suffix: "up.sql" | "down.sql",
+): Promise<string> {
   return readFile(
     path.join(MIGRATIONS_DIRECTORY, `${TARGET_MIGRATION}.${suffix}`),
     "utf8",
@@ -22,7 +28,9 @@ async function readMigrationFile(suffix: "up.sql" | "down.sql"): Promise<string>
 
 describe("db/migrations integrity", () => {
   it("pairs every *.up.sql with a *.down.sql", async () => {
-    const entries = await readdir(MIGRATIONS_DIRECTORY, { withFileTypes: true });
+    const entries = await readdir(MIGRATIONS_DIRECTORY, {
+      withFileTypes: true,
+    });
     const upFiles = entries
       .filter((entry) => entry.isFile() && entry.name.endsWith(".up.sql"))
       .map((entry) => entry.name);
@@ -57,9 +65,7 @@ describe("db/migrations integrity", () => {
     expect(upContents).toMatch(
       /alter table checkout_sessions\s+add column idempotency_key/,
     );
-    expect(upContents).toMatch(
-      /unique \(merchant_id, idempotency_key\)/,
-    );
+    expect(upContents).toMatch(/unique \(merchant_id, idempotency_key\)/);
     expect(upContents).toMatch(
       /alter table wallet_addresses\s+add column updated_at/,
     );
@@ -85,12 +91,12 @@ describe("db/migrations integrity", () => {
     const createdTables = [...upContents.matchAll(/create table (\w+)/g)].map(
       (match) => match[1],
     );
-    const createdIndexes = [
-      ...upContents.matchAll(/create index (\w+)/g),
-    ].map((match) => match[1]);
-    const addedColumns = [
-      ...upContents.matchAll(/add column (\w+)/g),
-    ].map((match) => match[1]);
+    const createdIndexes = [...upContents.matchAll(/create index (\w+)/g)].map(
+      (match) => match[1],
+    );
+    const addedColumns = [...upContents.matchAll(/add column (\w+)/g)].map(
+      (match) => match[1],
+    );
     const createdTriggers = [
       ...upContents.matchAll(/create trigger (\w+)/g),
     ].map((match) => match[1]);
@@ -99,26 +105,38 @@ describe("db/migrations integrity", () => {
     ].map((match) => match[1]);
 
     for (const table of createdTables) {
-      expect(downContents).toMatch(new RegExp(`drop table if exists (public\\.)?${table}\\b`));
+      expect(downContents).toMatch(
+        new RegExp(`drop table if exists (public\\.)?${table}\\b`),
+      );
     }
     for (const index of createdIndexes) {
-      expect(downContents).toMatch(new RegExp(`drop index if exists (public\\.)?${index}\\b`));
+      expect(downContents).toMatch(
+        new RegExp(`drop index if exists (public\\.)?${index}\\b`),
+      );
     }
     for (const column of addedColumns) {
-      expect(downContents).toMatch(new RegExp(`drop column if exists ${column}\\b`));
+      expect(downContents).toMatch(
+        new RegExp(`drop column if exists ${column}\\b`),
+      );
     }
     for (const trigger of createdTriggers) {
-      expect(downContents).toMatch(new RegExp(`drop trigger if exists ${trigger}\\b`));
+      expect(downContents).toMatch(
+        new RegExp(`drop trigger if exists ${trigger}\\b`),
+      );
     }
     for (const constraint of addedConstraints) {
-      expect(downContents).toMatch(new RegExp(`drop constraint if exists ${constraint}\\b`));
+      expect(downContents).toMatch(
+        new RegExp(`drop constraint if exists ${constraint}\\b`),
+      );
     }
   });
 
   it("drops dependent columns/constraints before the tables they may reference", async () => {
     const downContents = await readMigrationFile("down.sql");
 
-    const tableDropIndex = downContents.indexOf("drop table if exists public.chain_cursors");
+    const tableDropIndex = downContents.indexOf(
+      "drop table if exists public.chain_cursors",
+    );
     const columnDropIndex = downContents.indexOf(
       "drop column if exists idempotency_key",
     );

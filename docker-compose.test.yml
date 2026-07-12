@@ -1,0 +1,19 @@
+# Disposable integration-test PostgreSQL instance.
+# These credentials are local-only fixtures and must never be replaced with
+# deployment credentials or copied from `.env`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: outpay_test
+      POSTGRES_PASSWORD: outpay_test_password
+      POSTGRES_USER: outpay_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outpay_test -d outpay_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data

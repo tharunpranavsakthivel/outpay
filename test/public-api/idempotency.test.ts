@@ -11,6 +11,7 @@ import {
 
 describe("public API idempotency", () => {
   it("replays the original response for the same key and same request hash", async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
     const create = mock(async () => ({
       body: {
         id: "chk_123",
@@ -32,7 +33,7 @@ describe("public API idempotency", () => {
 
     const firstResult = await executeIdempotentRequest({
       create,
-      expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+      expiresAt,
       idempotencyKey: "order_123",
       requestHash,
       requestMethod: "POST",
@@ -52,7 +53,7 @@ describe("public API idempotency", () => {
 
     const secondResult = await executeIdempotentRequest({
       create,
-      expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+      expiresAt,
       idempotencyKey: "order_123",
       requestHash,
       requestMethod: "POST",
@@ -70,6 +71,7 @@ describe("public API idempotency", () => {
   });
 
   it("rejects reuse of the same key with a different request body hash", async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
     const run = executeIdempotentRequest({
       create: async () => ({
         body: {
@@ -77,7 +79,7 @@ describe("public API idempotency", () => {
         },
         statusCode: 201,
       }),
-      expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+      expiresAt,
       idempotencyKey: "order_123",
       requestHash: hashRequestBody({
         amount: "99.99",
@@ -90,7 +92,7 @@ describe("public API idempotency", () => {
           body: {
             id: "chk_123",
           },
-          expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+          expiresAt,
           requestHash: hashRequestBody({
             amount: "49.99",
           }),

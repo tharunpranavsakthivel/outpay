@@ -217,7 +217,7 @@ async function waitFor(
       throw new Error("Timed out waiting for queue state transition.");
     }
 
-    await Bun.sleep(50);
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
