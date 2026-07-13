@@ -240,9 +240,33 @@ Current persistence decision:
    platform fee only; customer funds continue to settle directly to merchant
    wallets.
 4. The repository does not currently include a public store directory route, but the product brief does. The schema below supports it through merchant public profile and verification fields.
-5. No dedicated admin screens exist yet, but support workflows are implied by store deactivation/reactivation, wallet review risk, and webhook retry operations. `merchant_reviews` remains reserved for T-42; enterprise contact requests are not persisted until T-44 is wired.
+5. No dedicated admin screens exist yet, but support workflows are implied by store deactivation/reactivation, wallet review risk, webhook retry operations, and the enterprise contact inbox. `merchant_reviews` remains reserved for T-42.
 
 ## 2. Core Product Entities
+
+### Table: `enterprise_contact_requests`
+
+- Purpose: Public enterprise sales and partnership inquiries submitted from `src/views/Contact.tsx` and persisted by `POST /api/contact`.
+- Persistence: The route validates the payload, applies the shared public rate limit, rejects honeypot submissions, and inserts through the server-side PostgreSQL client. No outbound email or user-controlled notification delivery is performed.
+
+| Column | Type | Required | Default | Notes |
+|---|---|---:|---|---|
+| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
+| `merchant_id` | `uuid` | no | `null` | Optional link when an inquiry is later associated with a merchant |
+| `request_type` | `enterprise_request_type_enum` | yes | none | pricing/implementation/partnership/general |
+| `work_email` | `citext` | yes | none | Submitted work email |
+| `company_name` | `text` | yes | none | Company name |
+| `monthly_transaction_volume` | `text` | no | `null` | Optional self-reported volume |
+| `message` | `text` | yes | none | Inquiry details |
+| `status` | `enterprise_request_status_enum` | yes | `'new'` | new/qualified/contacted/closed |
+| `assigned_to_user_id` | `uuid` | no | `null` | Optional support owner |
+| `created_at` | `timestamptz` | yes | `now()` | |
+| `updated_at` | `timestamptz` | yes | `now()` | Trigger maintained |
+
+- Indexes:
+  - `idx_enterprise_contact_requests_status`
+  - `idx_enterprise_contact_requests_work_email`
+- Access: Anonymous callers can only submit through the rate-limited API route; direct table access is server-side only.
 
 ### Table: `user_profiles`
 

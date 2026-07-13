@@ -1,6 +1,6 @@
 /**
- * Verifies that the expected PostgreSQL schema objects exist and that objects
- * removed by cleanup migrations are absent after migrations have been applied.
+ * Verifies that the expected PostgreSQL schema objects exist after migrations
+ * have been applied.
  */
 
 import {
@@ -19,6 +19,8 @@ const REQUIRED_ENUMS = [
   "checkout_status_reason_enum",
   "error_severity_enum",
   "error_source_enum",
+  "enterprise_request_status_enum",
+  "enterprise_request_type_enum",
   "fee_entry_type_enum",
   "integration_provider_enum",
   "integration_status_enum",
@@ -57,6 +59,7 @@ const REQUIRED_TABLES = [
   "customers",
   "error_logs",
   "event_logs",
+  "enterprise_contact_requests",
   "file_assets",
   "integration_installations",
   "merchant_members",
@@ -105,6 +108,8 @@ const REQUIRED_INDEXES = [
   "idx_error_logs_source_created_at",
   "idx_event_logs_event_name_occurred_at",
   "idx_event_logs_merchant_occurred_at",
+  "idx_enterprise_contact_requests_status",
+  "idx_enterprise_contact_requests_work_email",
   "idx_file_assets_owner_merchant_id",
   "idx_file_assets_storage_path",
   "idx_fee_ledger_entries_merchant_month",
@@ -167,6 +172,7 @@ const REQUIRED_FUNCTIONS = [
 const REQUIRED_TRIGGERS = [
   "trg_checkout_sessions_updated_at",
   "trg_customers_updated_at",
+  "trg_enterprise_contact_requests_updated_at",
   "trg_integration_installations_updated_at",
   "trg_merchant_members_updated_at",
   "trg_merchant_onboarding_updated_at",
@@ -179,20 +185,6 @@ const REQUIRED_TRIGGERS = [
   "trg_wallet_addresses_updated_at",
   "trg_webhook_endpoints_updated_at",
 ] as const;
-const REMOVED_ENUMS = [
-  "enterprise_request_status_enum",
-  "enterprise_request_type_enum",
-] as const;
-const REMOVED_TABLES = ["enterprise_contact_requests"] as const;
-const REMOVED_INDEXES = [
-  "idx_enterprise_contact_requests_status",
-  "idx_enterprise_contact_requests_work_email",
-] as const;
-const REMOVED_TRIGGERS = [
-  "trg_enterprise_contact_requests_updated_at",
-] as const;
-const REMOVED_COLUMNS = [] as const;
-
 /**
  * Runs catalog checks against the active database connection.
  */
@@ -263,60 +255,6 @@ async function main(): Promise<void> {
         where n.nspname = 'public' and not t.tgisinternal
       `,
     );
-    await assertNamedObjectsAbsent(
-      sql,
-      "removed enums",
-      REMOVED_ENUMS,
-      `
-        select t.typname as name
-        from pg_type t
-        join pg_namespace n on n.oid = t.typnamespace
-        where n.nspname = 'public' and t.typtype = 'e'
-      `,
-    );
-    await assertNamedObjectsAbsent(
-      sql,
-      "removed tables",
-      REMOVED_TABLES,
-      `
-        select tablename as name
-        from pg_tables
-        where schemaname = 'public'
-      `,
-    );
-    await assertNamedObjectsAbsent(
-      sql,
-      "removed indexes",
-      REMOVED_INDEXES,
-      `
-        select indexname as name
-        from pg_indexes
-        where schemaname = 'public'
-      `,
-    );
-    await assertNamedObjectsAbsent(
-      sql,
-      "removed triggers",
-      REMOVED_TRIGGERS,
-      `
-        select tgname as name
-        from pg_trigger t
-        join pg_class c on c.oid = t.tgrelid
-        join pg_namespace n on n.oid = c.relnamespace
-        where n.nspname = 'public' and not t.tgisinternal
-      `,
-    );
-    await assertNamedObjectsAbsent(
-      sql,
-      "removed columns",
-      REMOVED_COLUMNS,
-      `
-        select table_name || '.' || column_name as name
-        from information_schema.columns
-        where table_schema = 'public'
-      `,
-    );
-
     const authUsers = await sql<{ exists: boolean }[]>`
       select exists (
         select 1
@@ -350,36 +288,6 @@ async function assertNamedObjectsExist(
 
   if (missing.length > 0) {
     throw new Error(`Missing ${label}: ${missing.join(", ")}`);
-  }
-}
-
-/**
- * Fails validation when any object from a cleanup migration remains present.
- *
- * Parameters:
- * - sql: Active PostgreSQL query client.
- * - label: Human-readable catalog category used in the error.
- * - removedNames: Object names that must no longer exist.
- * - catalogQuery: Catalog query returning a `name` column.
- *
- * Returns:
- * - Resolves when none of the removed names are present.
- *
- * Throws:
- * - Error listing every stale object still present in the schema.
- */
-async function assertNamedObjectsAbsent(
-  sql: Awaited<ReturnType<typeof connectToDatabase>>["sql"],
-  label: string,
-  removedNames: readonly string[],
-  catalogQuery: string,
-): Promise<void> {
-  const rows = await sql.unsafe(catalogQuery);
-  const actualNames = new Set(rows.map((row) => String(row.name)));
-  const stale = removedNames.filter((name) => actualNames.has(name));
-
-  if (stale.length > 0) {
-    throw new Error(`Unexpected ${label}: ${stale.join(", ")}`);
   }
 }
 

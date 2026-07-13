@@ -168,6 +168,14 @@ export const RATE_LIMIT_POLICIES = {
     maxRequests: 300,
     windowMs: 60 * 1000,
   },
+  contactSubmit: {
+    errorCode: "CONTACT_RATE_LIMITED",
+    errorMessage: "Too many contact requests.",
+    failureMode: "open",
+    id: "contact-submit",
+    maxRequests: 5,
+    windowMs: 60 * 60 * 1000,
+  },
   defaultAuthenticatedRoute: {
     errorCode: "RATE_LIMITED",
     errorMessage: "Too many authenticated API requests.",

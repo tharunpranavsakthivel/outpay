@@ -176,6 +176,36 @@ export const apiKeyActionBodySchema = z.object({
   action: z.literal("revoke"),
 });
 
+/**
+ * Validates the public enterprise contact form payload before persistence.
+ * The honeypot is intentionally accepted as an optional field so automated
+ * submissions can be rejected without exposing a separate anti-spam endpoint.
+ */
+export const contactBodySchema = z.object({
+  company_name: z
+    .string()
+    .trim()
+    .min(1, "Company name is required.")
+    .max(200, "Company name is too long."),
+  message: z
+    .string()
+    .trim()
+    .min(1, "Message is required.")
+    .max(5000, "Message is too long."),
+  monthly_transaction_volume: z
+    .string()
+    .trim()
+    .max(200, "Transaction volume is too long.")
+    .default(""),
+  request_type: z.enum(["pricing", "implementation", "partnership", "general"]),
+  website: z.string().trim().max(200).default(""),
+  work_email: z
+    .string()
+    .trim()
+    .max(320, "Work email is too long.")
+    .email("Must be a valid work email address."),
+});
+
 export const webhookEndpointBodySchema = z.object({
   url: z
     .string()

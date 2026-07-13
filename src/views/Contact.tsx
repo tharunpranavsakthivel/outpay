@@ -1,6 +1,7 @@
 "use client";
 
 import { Building2, Mail, MessageSquare } from "lucide-react";
+import { type FormEvent, useState } from "react";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
 import { Button } from "../components/ui/Button";
@@ -24,8 +25,78 @@ const CONTACT_REASONS = [
   },
 ];
 
+type SubmissionState =
+  | { kind: "idle" }
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string };
+
+interface ContactErrorPayload {
+  error?: {
+    details?: Array<{ field?: string; issue: string }>;
+    message?: string;
+  };
+}
+
 /** Contact page for corporate pricing, implementation help, and partnerships. */
 export default function Contact() {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionState, setSubmissionState] = useState<SubmissionState>({
+    kind: "idle",
+  });
+
+  /**
+   * Sends the contact form to the public API and updates user-visible status.
+   *
+   * Parameters:
+   * - event: Browser submit event for the contact form.
+   *
+   * Returns:
+   * - A promise that resolves after the request has been handled.
+   */
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setSubmissionState({ kind: "idle" });
+
+    try {
+      const form = event.currentTarget;
+      const response = await fetch("/api/contact", {
+        body: JSON.stringify(Object.fromEntries(new FormData(form).entries())),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const payload = (await response.json()) as ContactErrorPayload;
+
+      if (!response.ok) {
+        const details = payload.error?.details
+          ?.map((detail) => `${detail.field ?? "Form"}: ${detail.issue}`)
+          .join(" ");
+
+        setSubmissionState({
+          kind: "error",
+          message:
+            details ||
+            payload.error?.message ||
+            "Unable to submit your request. Please try again shortly.",
+        });
+        return;
+      }
+
+      form.reset();
+      setSubmissionState({
+        kind: "success",
+        message: "Thanks — your inquiry has been sent to the Outpay team.",
+      });
+    } catch {
+      setSubmissionState({
+        kind: "error",
+        message: "Unable to reach Outpay. Please try again shortly.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="bg-background min-h-screen font-sans flex flex-col">
       <div className="sticky top-0 z-20">
@@ -62,7 +133,10 @@ export default function Contact() {
           </div>
         </div>
 
-        <form className="op-hero-in-delay flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-xs sm:p-7">
+        <form
+          className="op-hero-in-delay flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-xs sm:p-7"
+          onSubmit={handleSubmit}
+        >
           <div>
             <h2 className="text-xl font-semibold text-foreground m-0 mb-1">
               Contact sales
@@ -71,20 +145,90 @@ export default function Contact() {
               Share enough context for a focused follow-up.
             </p>
           </div>
-          <Input label="Work email" placeholder="you@company.com" />
-          <Input label="Company" placeholder="Company name" />
-          <Input label="Monthly transaction volume" placeholder="e.g. 5,000" />
-          <label className="flex flex-col gap-1.5">
+          <Input
+            id="contact-work-email"
+            label="Work email"
+            name="work_email"
+            placeholder="you@company.com"
+            required
+            type="email"
+          />
+          <Input
+            id="contact-company-name"
+            label="Company"
+            name="company_name"
+            placeholder="Company name"
+            required
+          />
+          <Input
+            id="contact-monthly-volume"
+            label="Monthly transaction volume"
+            name="monthly_transaction_volume"
+            placeholder="e.g. 5,000"
+          />
+          <label
+            className="flex flex-col gap-1.5"
+            htmlFor="contact-request-type"
+          >
             <span className="text-xs font-medium text-foreground-light">
               What can we help with?
             </span>
+            <select
+              className="h-[34px] rounded-sm border border-border-control bg-foreground/[0.026] px-3 text-sm text-foreground outline-none focus:shadow-focus-ring"
+              defaultValue=""
+              id="contact-request-type"
+              name="request_type"
+              required
+            >
+              <option disabled value="">
+                Select a topic
+              </option>
+              <option value="pricing">Corporate pricing</option>
+              <option value="implementation">Implementation planning</option>
+              <option value="partnership">Partnerships</option>
+              <option value="general">Something else</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5" htmlFor="contact-message">
+            <span className="text-xs font-medium text-foreground-light">
+              Message
+            </span>
             <textarea
               className="min-h-[110px] resize-y rounded-sm border border-border-control bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-border-strong"
+              id="contact-message"
+              name="message"
               placeholder="Tell us about your payment flow."
+              required
             />
           </label>
-          <Button variant="primary" size="medium" block>
-            Send message
+          <label
+            className="absolute -left-[10000px] h-px w-px overflow-hidden"
+            htmlFor="contact-website"
+          >
+            Website
+            <input id="contact-website" name="website" tabIndex={-1} />
+          </label>
+          {submissionState.kind !== "idle" && (
+            <p
+              aria-live="polite"
+              className={
+                submissionState.kind === "success"
+                  ? "text-sm text-foreground"
+                  : "text-sm text-destructive"
+              }
+              role={submissionState.kind === "success" ? "status" : "alert"}
+            >
+              {submissionState.message}
+            </p>
+          )}
+          <Button
+            disabled={isSubmitting}
+            type="submit"
+            variant="primary"
+            size="medium"
+            block
+          >
+            {isSubmitting ? "Sending…" : "Send message"}
           </Button>
         </form>
       </div>
