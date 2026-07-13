@@ -151,6 +151,8 @@ export interface PaymentsPageData {
 }
 
 export interface StoreSettingsData {
+  directorySummary: string | null;
+  isDirectoryListed: boolean;
   merchant: MerchantShellData;
   websiteUrl: string | null;
   payoutWallet: string | null;
@@ -160,6 +162,19 @@ export interface StoreSettingsData {
   webhookStatus: string | null;
   webhookSecretPrefix: string | null;
   lastWebhookTestAt: string | null;
+}
+
+export interface PublicStore {
+  directorySummary: string | null;
+  displayName: string;
+  isVerified: boolean;
+  logoUrl: string | null;
+  publicSlug: string;
+  websiteUrl: string | null;
+}
+
+export interface PublicStoreDirectoryData {
+  stores: PublicStore[];
 }
 
 export interface AccountSettingsData {

@@ -27,6 +27,7 @@ const SIZE_CLASSES: Record<
 };
 
 export interface SwitchProps {
+  ariaLabel?: string;
   checked: boolean;
   onChange?: (checked: boolean) => void;
   size?: SwitchSize;
@@ -34,6 +35,7 @@ export interface SwitchProps {
 }
 
 export function Switch({
+  ariaLabel,
   checked,
   onChange,
   size = "medium",
@@ -43,6 +45,7 @@ export function Switch({
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
       role="switch"
       aria-checked={checked}
       disabled={disabled}

@@ -59,6 +59,8 @@ import type {
   PaymentsQuery,
   PublicCheckoutData,
   PublicReceiptData,
+  PublicStore,
+  PublicStoreDirectoryData,
   RecentPaymentItem,
   StoreSettingsData,
   WebhookDeliveryItem,
@@ -2521,12 +2523,16 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
       {
         last_test_sent_at: string | null;
         signing_secret_prefix: string | null;
+        directory_summary: string | null;
+        is_directory_listed: boolean;
         status: string | null;
         url: string | null;
         website_url: string | null;
       }[]
     >`
       select
+        m.directory_summary,
+        m.is_directory_listed,
         m.website_url,
         we.url,
         we.status::text as status,
@@ -2542,6 +2548,8 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
 
     return {
       chainName: wallet?.blockchainName ?? "Base",
+      directorySummary: merchantDetails?.directory_summary ?? null,
+      isDirectoryListed: merchantDetails?.is_directory_listed ?? false,
       lastWebhookTestAt: merchantDetails?.last_test_sent_at ?? null,
       merchant: context.merchant,
       payoutWallet: wallet?.address ?? null,
@@ -2561,6 +2569,8 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
  */
 export async function updateStoreProfile(input: {
   description: string;
+  directorySummary?: string;
+  isDirectoryListed?: boolean;
   storeName: string;
   supportEmail: string;
   websiteUrl: string;
@@ -2570,6 +2580,14 @@ export async function updateStoreProfile(input: {
   const storeName = input.storeName.trim();
   const supportEmail = input.supportEmail.trim();
   const websiteUrl = input.websiteUrl.trim();
+  const directorySummary = input.directorySummary?.trim();
+
+  if (
+    input.directorySummary !== undefined ||
+    input.isDirectoryListed !== undefined
+  ) {
+    requireRole(context, ["owner", "admin"]);
+  }
 
   if (!storeName) {
     throw new Error("Store name is required.");
@@ -2581,6 +2599,10 @@ export async function updateStoreProfile(input: {
 
   if (websiteUrl && !URL.canParse(websiteUrl)) {
     throw new Error("Website URL must be a valid absolute URL.");
+  }
+
+  if (directorySummary !== undefined && directorySummary.length > 1000) {
+    throw new Error("Directory summary must be 1000 characters or fewer.");
   }
 
   try {
@@ -2598,10 +2620,18 @@ export async function updateStoreProfile(input: {
         description = ${input.description.trim() || null},
         support_email = ${supportEmail || null},
         website_url = ${websiteUrl || null},
+        is_directory_listed = coalesce(${input.isDirectoryListed ?? null}::boolean, is_directory_listed),
+        directory_summary = case
+          when ${input.directorySummary !== undefined}
+            then ${directorySummary || null}::text
+          else directory_summary
+        end,
         updated_at = now()
       where id = ${context.merchant.merchantId}
       returning
+        directory_summary,
         display_name,
+        is_directory_listed,
         description,
         support_email::text,
         website_url
@@ -2611,6 +2641,200 @@ export async function updateStoreProfile(input: {
   } finally {
     await database.release();
   }
+}
+
+/**
+ * Returns the directory-safe public fields for active, opted-in merchants.
+ *
+ * Parameters:
+ * - input.search: Optional case-insensitive match against store name, slug, or
+ *   directory summary.
+ * - input.limit: Maximum number of public stores to return, capped at 100.
+ *
+ * Returns:
+ * - Public store records with no support email, merchant UUID, or other
+ *   internal fields.
+ *
+ * Throws:
+ * - Database connection/query errors from the shared database client.
+ */
+export async function getPublicStoreDirectory(
+  input: { limit?: number; search?: string } = {},
+): Promise<PublicStoreDirectoryData> {
+  const database = await connectToDatabase();
+  const search = input.search?.trim().toLowerCase() ?? "";
+  const requestedLimit =
+    input.limit !== undefined && Number.isFinite(input.limit)
+      ? Math.trunc(input.limit)
+      : 100;
+  const limit = Math.min(Math.max(requestedLimit, 1), 100);
+
+  try {
+    const rows = await database.sql<
+      {
+        directory_summary: string | null;
+        display_name: string;
+        is_directory_listed: boolean;
+        is_verified: boolean;
+        logo_asset_id: string | null;
+        merchant_status: string;
+        public_slug: string;
+        website_url: string | null;
+      }[]
+    >`
+      select
+        m.public_slug::text as public_slug,
+        m.display_name,
+        m.directory_summary,
+        m.website_url,
+        m.logo_asset_id::text as logo_asset_id,
+        (m.verification_status::text = 'verified') as is_verified,
+        m.is_directory_listed,
+        m.status::text as merchant_status
+      from merchants m
+      where m.is_directory_listed = true
+        and m.status = 'active'
+        and (
+          ${search} = ''
+          or lower(m.public_slug::text) like ${`%${search}%`}
+          or lower(m.display_name) like ${`%${search}%`}
+          or lower(coalesce(m.directory_summary, '')) like ${`%${search}%`}
+        )
+      order by lower(m.display_name), m.created_at asc
+      limit ${limit}
+    `;
+
+    return {
+      stores: rows
+        .filter((row) =>
+          isPublicStoreEligible({
+            isDirectoryListed: row.is_directory_listed,
+            status: row.merchant_status,
+          }),
+        )
+        .map(mapPublicStore),
+    };
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Loads one directory-safe public store profile by its public slug.
+ *
+ * Parameters:
+ * - publicSlug: URL slug supplied by the public profile route.
+ *
+ * Returns:
+ * - Matching active, opted-in store, or `null` when the store is not public.
+ *
+ * Throws:
+ * - Database connection/query errors from the shared database client.
+ */
+export async function getPublicStoreProfile(
+  publicSlug: string,
+): Promise<PublicStore | null> {
+  const database = await connectToDatabase();
+
+  try {
+    const rows = await database.sql<
+      {
+        directory_summary: string | null;
+        display_name: string;
+        is_directory_listed: boolean;
+        is_verified: boolean;
+        logo_asset_id: string | null;
+        merchant_status: string;
+        public_slug: string;
+        website_url: string | null;
+      }[]
+    >`
+      select
+        m.public_slug::text as public_slug,
+        m.display_name,
+        m.directory_summary,
+        m.website_url,
+        m.logo_asset_id::text as logo_asset_id,
+        (m.verification_status::text = 'verified') as is_verified,
+        m.is_directory_listed,
+        m.status::text as merchant_status
+      from merchants m
+      where lower(m.public_slug::text) = lower(${publicSlug.trim()})
+        and m.is_directory_listed = true
+        and m.status = 'active'
+      limit 1
+    `;
+
+    return rows[0] &&
+      isPublicStoreEligible({
+        isDirectoryListed: rows[0].is_directory_listed,
+        status: rows[0].merchant_status,
+      })
+      ? mapPublicStore(rows[0])
+      : null;
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Applies the public directory eligibility contract independently of the SQL
+ * predicate so future query changes cannot accidentally publish inactive stores.
+ *
+ * Parameters:
+ * - input.isDirectoryListed: Merchant opt-in flag.
+ * - input.status: Persisted merchant lifecycle status.
+ *
+ * Returns:
+ * - True only for active merchants that explicitly opted into discovery.
+ */
+export function isPublicStoreEligible(input: {
+  isDirectoryListed: boolean;
+  status: string;
+}): boolean {
+  return input.isDirectoryListed && input.status === "active";
+}
+
+/**
+ * Maps a public merchant row without carrying internal identifiers into the
+ * response or view model.
+ */
+function mapPublicStore(row: {
+  directory_summary: string | null;
+  display_name: string;
+  is_verified: boolean;
+  logo_asset_id: string | null;
+  public_slug: string;
+  website_url: string | null;
+}): PublicStore {
+  return {
+    directorySummary: row.directory_summary,
+    displayName: row.display_name,
+    isVerified: row.is_verified,
+    logoUrl: row.logo_asset_id ? `/api/store-logo/${row.logo_asset_id}` : null,
+    publicSlug: row.public_slug,
+    websiteUrl: getPublicWebsiteUrl(row.website_url),
+  };
+}
+
+/**
+ * Keeps only web URLs safe for an anonymous external link.
+ *
+ * Parameters:
+ * - value: Stored merchant website value.
+ *
+ * Returns:
+ * - Normalized HTTP(S) URL, or null for malformed or non-web schemes.
+ */
+function getPublicWebsiteUrl(value: string | null): string | null {
+  if (!value || !URL.canParse(value)) {
+    return null;
+  }
+
+  const url = new URL(value);
+  return url.protocol === "http:" || url.protocol === "https:"
+    ? url.toString()
+    : null;
 }
 
 /**

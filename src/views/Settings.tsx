@@ -14,6 +14,7 @@ import {
 } from "../components/ui/Card";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
+import { Switch } from "../components/ui/Switch";
 import { useToast } from "../components/ui/Toast";
 import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
 import { formatDashboardDate } from "../lib/dashboard/format";
@@ -46,6 +47,12 @@ export default function Settings({
     initialData.merchant.supportEmail ?? "",
   );
   const [websiteUrl, setWebsiteUrl] = useState(initialData.websiteUrl ?? "");
+  const [directorySummary, setDirectorySummary] = useState(
+    initialData.directorySummary ?? "",
+  );
+  const [isDirectoryListed, setIsDirectoryListed] = useState(
+    initialData.isDirectoryListed,
+  );
   const [webhookUrl, setWebhookUrl] = useState(initialData.webhookUrl ?? "");
   const [walletAddress, setWalletAddress] = useState(
     initialData.payoutWallet ?? "",
@@ -91,6 +98,12 @@ export default function Settings({
       const response = await fetch("/api/settings/store-profile", {
         body: JSON.stringify({
           description: storeDesc,
+          ...(canManageSensitiveActions
+            ? {
+                directorySummary,
+                isDirectoryListed,
+              }
+            : {}),
           storeName,
           supportEmail,
           websiteUrl,
@@ -292,6 +305,72 @@ export default function Settings({
               >
                 Save changes
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Store directory</CardTitle>
+              <CardDescription>
+                Let buyers discover this store on Outpay&apos;s public
+                directory. Only active stores appear.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4 border-b-0">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium">List this store</div>
+                  <div className="text-xs text-foreground-lighter mt-0.5">
+                    Your store name, logo, website, and directory summary will
+                    be public.
+                  </div>
+                </div>
+                <Switch
+                  ariaLabel="List this store in the public directory"
+                  checked={isDirectoryListed}
+                  disabled={!canManageSensitiveActions || isPending}
+                  onChange={setIsDirectoryListed}
+                />
+              </div>
+              <label
+                className="flex flex-col gap-1.5 font-sans"
+                htmlFor="directory-summary"
+              >
+                <span className="text-sm font-medium text-foreground">
+                  Directory summary
+                </span>
+                <textarea
+                  id="directory-summary"
+                  className="min-h-[96px] w-full resize-y rounded-sm border border-border-control bg-foreground/[0.026] px-3 py-2 font-sans text-sm outline-none transition-shadow duration-150 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!canManageSensitiveActions || isPending}
+                  maxLength={1000}
+                  value={directorySummary}
+                  onChange={(event) => setDirectorySummary(event.target.value)}
+                />
+                <span className="text-xs text-foreground-lighter">
+                  {directorySummary.length}/1000 characters
+                </span>
+              </label>
+              {!canManageSensitiveActions && (
+                <div className="text-xs text-foreground-lighter">
+                  Only owners and admins can change directory visibility.
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="medium"
+                  disabled={isPending || !canManageSensitiveActions}
+                  title={
+                    canManageSensitiveActions
+                      ? undefined
+                      : "Only owners and admins can update directory settings."
+                  }
+                  onClick={saveProfile}
+                >
+                  Save directory settings
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

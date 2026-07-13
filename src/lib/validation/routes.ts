@@ -118,6 +118,8 @@ export const payoutWalletBodySchema = z.object({
 
 export const storeProfileBodySchema = z.object({
   description: optionalTrimmedText(1000),
+  directorySummary: z.string().trim().max(1000).optional(),
+  isDirectoryListed: z.boolean().optional(),
   storeName: z.string().trim().min(1, "Store name is required.").max(200),
   supportEmail: z
     .string()

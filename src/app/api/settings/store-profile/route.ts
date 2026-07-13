@@ -83,6 +83,8 @@ async function updateStoreProfileHandler(request: Request) {
     return Response.json(
       await updateStoreProfile({
         description: body.description ?? "",
+        directorySummary: body.directorySummary,
+        isDirectoryListed: body.isDirectoryListed,
         storeName: body.storeName ?? "",
         supportEmail: body.supportEmail ?? "",
         websiteUrl: body.websiteUrl ?? "",
