@@ -20,7 +20,12 @@ import {
   TIGRIS_BUCKET_NAME,
   uploadObject,
 } from "@/lib/storage/tigris";
-import { verifyWalletOwnershipSignature } from "@/lib/wallet/verify-signature";
+import {
+  isChecksumValidAddress,
+  isWalletAddressFormatValid,
+  verifyWalletOwnershipSignature,
+  WALLET_ADDRESS_CHECKSUM_ERROR,
+} from "@/lib/wallet/verify-signature";
 import { encryptWebhookSigningSecret } from "@/lib/webhooks/secrets";
 import { validateMerchantWebhookUrl } from "@/lib/webhooks/url";
 import {
@@ -674,8 +679,12 @@ export async function completeMerchantOnboarding(input: {
     throw new Error("Confirm the payout wallet before continuing.");
   }
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+  if (!isWalletAddressFormatValid(walletAddress)) {
     throw new Error("Wallet address must be a valid Base EVM address.");
+  }
+
+  if (!isChecksumValidAddress(walletAddress)) {
+    throw new Error(WALLET_ADDRESS_CHECKSUM_ERROR);
   }
 
   const walletVerification = await verifyWalletOwnershipSignature({
@@ -2625,8 +2634,12 @@ export async function replacePrimaryWallet(input: {
 
   const nextAddress = input.walletAddress.trim();
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(nextAddress)) {
+  if (!isWalletAddressFormatValid(nextAddress)) {
     throw new Error("Wallet address must be a valid Base EVM address.");
+  }
+
+  if (!isChecksumValidAddress(nextAddress)) {
+    throw new Error(WALLET_ADDRESS_CHECKSUM_ERROR);
   }
 
   if (!currentWallet) {

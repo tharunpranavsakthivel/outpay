@@ -4,6 +4,11 @@
  */
 
 import { z } from "zod";
+import {
+  isChecksumValidAddress,
+  isWalletAddressFormatValid,
+  WALLET_ADDRESS_CHECKSUM_ERROR,
+} from "@/lib/wallet/verify-signature";
 
 /**
  * Creates an optional text field that normalizes absent values to an empty
@@ -34,7 +39,12 @@ const requiredPathIdentifier = z
 const walletAddress = z
   .string()
   .trim()
-  .regex(/^0x[a-fA-F0-9]{40}$/u, "Must be a valid Base EVM wallet address.");
+  .refine(isWalletAddressFormatValid, {
+    message: "Must be a valid Base EVM wallet address.",
+  })
+  .refine((value) => {
+    return !isWalletAddressFormatValid(value) || isChecksumValidAddress(value);
+  }, WALLET_ADDRESS_CHECKSUM_ERROR);
 
 const walletSignature = z
   .string()

@@ -11,6 +11,10 @@ import { isAddress, recoverMessageAddress } from "viem";
 /** Signatures are only accepted within this window to prevent replaying an
  * old signature against a later wallet-change request. */
 export const WALLET_CHALLENGE_MAX_AGE_MS = 5 * 60 * 1000;
+export const WALLET_ADDRESS_CHECKSUM_ERROR =
+  "This address's checksum doesn't match — please copy it directly from your wallet.";
+
+const WALLET_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/u;
 
 export type WalletVerificationFailureReason =
   | "invalid_address_checksum"
@@ -36,12 +40,48 @@ export function buildWalletChallengeMessage(input: {
 }
 
 /**
+ * Checks whether an input has the structural shape of a Base EVM address.
+ *
+ * Parameters:
+ * - address: Trimmed wallet address supplied by a merchant.
+ *
+ * Returns:
+ * - `true` when the value has the `0x` prefix and exactly 40 hexadecimal
+ *   characters; otherwise `false`.
+ */
+export function isWalletAddressFormatValid(address: string): boolean {
+  return WALLET_ADDRESS_PATTERN.test(address);
+}
+
+/**
  * Cheap first-line check: rejects malformed addresses and, for mixed-case
- * input, addresses that fail EIP-55 checksum validation. Intended to run
- * before the (comparatively expensive) signature-recovery step.
+ * input, addresses that fail EIP-55 checksum validation. All-lowercase and
+ * all-uppercase hexadecimal bodies are valid unchecksummed representations.
+ * Intended to run before the (comparatively expensive) signature-recovery
+ * step.
+ *
+ * Parameters:
+ * - address: Trimmed wallet address supplied by a merchant.
+ *
+ * Returns:
+ * - `true` when the address is structurally valid and either unchecksummed or
+ *   has a valid EIP-55 checksum; otherwise `false`.
  */
 export function isChecksumValidAddress(address: string): boolean {
-  return isAddress(address);
+  if (!isWalletAddressFormatValid(address)) {
+    return false;
+  }
+
+  const hexadecimalBody = address.slice(2);
+
+  if (
+    hexadecimalBody.toLowerCase() === hexadecimalBody ||
+    hexadecimalBody.toUpperCase() === hexadecimalBody
+  ) {
+    return true;
+  }
+
+  return isAddress(address, { strict: true });
 }
 
 /**
@@ -72,8 +112,7 @@ export async function verifyWalletOwnershipSignature(input: {
     return {
       ok: false,
       reason: "invalid_address_checksum",
-      message:
-        "Wallet address failed EIP-55 checksum validation. Double-check the address casing.",
+      message: WALLET_ADDRESS_CHECKSUM_ERROR,
     };
   }
 

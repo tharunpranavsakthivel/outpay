@@ -26,6 +26,12 @@ import {
 } from "@/lib/validation/routes";
 
 const validWalletAddress = `0x${"a".repeat(40)}`;
+const validChecksummedWalletAddress =
+  "0x52908400098527886E0F7030069857D2E4169EE7";
+const invalidChecksumWalletAddress = validChecksummedWalletAddress.replace(
+  "E",
+  "e",
+);
 const validWalletSignature = `0x${"a".repeat(130)}`;
 
 describe("route parameter schemas", () => {
@@ -125,6 +131,28 @@ describe("settings and onboarding body schemas", () => {
 
     expect(onboardingBodySchema.safeParse(valid).success).toBe(true);
     expect(
+      onboardingBodySchema.safeParse({
+        ...valid,
+        walletAddress: validChecksummedWalletAddress,
+      }).success,
+    ).toBe(true);
+    expect(
+      onboardingBodySchema.safeParse({
+        ...valid,
+        walletAddress: `0x${validChecksummedWalletAddress.slice(2).toUpperCase()}`,
+      }).success,
+    ).toBe(true);
+    const invalidChecksumOnboarding = onboardingBodySchema.safeParse({
+      ...valid,
+      walletAddress: invalidChecksumWalletAddress,
+    });
+    expect(invalidChecksumOnboarding.success).toBe(false);
+    if (!invalidChecksumOnboarding.success) {
+      expect(invalidChecksumOnboarding.error.issues[0]?.message).toBe(
+        "This address's checksum doesn't match — please copy it directly from your wallet.",
+      );
+    }
+    expect(
       onboardingBodySchema.safeParse({ ...valid, walletAddress: "0x123" })
         .success,
     ).toBe(false);
@@ -136,6 +164,14 @@ describe("settings and onboarding body schemas", () => {
         walletSignatureTimestampMs: valid.walletSignatureTimestampMs,
       }).success,
     ).toBe(true);
+    expect(
+      payoutWalletBodySchema.safeParse({
+        confirmed: valid.walletConfirmed,
+        walletAddress: invalidChecksumWalletAddress,
+        walletSignature: valid.walletSignature,
+        walletSignatureTimestampMs: valid.walletSignatureTimestampMs,
+      }).success,
+    ).toBe(false);
   });
 
   it("validates account, avatar, and store status bodies", () => {

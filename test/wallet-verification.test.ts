@@ -116,4 +116,10 @@ describe("wallet ownership signature verification", () => {
   it("accepts all-lowercase addresses (no checksum information to validate)", () => {
     expect(isChecksumValidAddress(OWNED_ADDRESS.toLowerCase())).toBe(true);
   });
+
+  it("accepts all-uppercase hexadecimal addresses (no checksum information to validate)", () => {
+    expect(
+      isChecksumValidAddress(`0x${OWNED_ADDRESS.slice(2).toUpperCase()}`),
+    ).toBe(true);
+  });
 });
