@@ -383,6 +383,8 @@ async function buildUniqueMerchantSlug(
 /**
  * Ensures the Base blockchain row and default USDC token exist before
  * onboarding inserts a payout wallet or checkout-dependent merchant state.
+ * Migration 0014 creates these rows for fresh databases; this remains a
+ * defensive, idempotent fallback for environments that predate that migration.
  *
  * Parameters:
  * - sql: Active transaction-scoped Postgres client.

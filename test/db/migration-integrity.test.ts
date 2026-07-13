@@ -17,6 +17,7 @@ const MIGRATIONS_DIRECTORY = path.resolve(
 );
 const TARGET_MIGRATION = "0004_payment_pipeline_support";
 const CLEANUP_MIGRATION = "0010_remove_unscheduled_billing_and_contact_schema";
+const CATALOG_SEED_MIGRATION = "0014_seed_base_usdc";
 
 async function readMigrationFile(
   suffix: "up.sql" | "down.sql",
@@ -197,5 +198,28 @@ describe("db/migrations integrity", () => {
     );
     expect(upContents).not.toMatch(/drop table if exists public\.error_logs/);
     expect(upContents).not.toMatch(/drop table if exists public\.event_logs/);
+  });
+
+  it("seeds the Base blockchain and USDC token idempotently", async () => {
+    const upContents = await readFile(
+      path.join(MIGRATIONS_DIRECTORY, `${CATALOG_SEED_MIGRATION}.up.sql`),
+      "utf8",
+    );
+    const downContents = await readFile(
+      path.join(MIGRATIONS_DIRECTORY, `${CATALOG_SEED_MIGRATION}.down.sql`),
+      "utf8",
+    );
+
+    expect(upContents).toMatch(/insert into public\.blockchains/);
+    expect(upContents).toMatch(/'base',\s+'Base',\s+8453/);
+    expect(upContents).toMatch(
+      /'https:\/\/basescan\.org\/tx\/\{tx_hash\}',\s+'Base mainnet'/,
+    );
+    expect(upContents).toMatch(/'USDC',\s+'USD Coin'/);
+    expect(upContents).toMatch(/'0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913'/);
+    expect(upContents).toMatch(/'0x833589fdc6edb6e08f4c7c32d4f71b54bda02913'/);
+    expect(upContents.match(/on conflict do nothing/g)).toHaveLength(2);
+    expect(downContents).toMatch(/delete from public\.tokens/);
+    expect(downContents).toMatch(/delete from public\.blockchains/);
   });
 });
