@@ -24,8 +24,7 @@ const AUTH_BASE_URL =
   process.env.APP_BASE_URL?.trim() ||
   "http://localhost:3000";
 
-const AUTH_SECRET =
-  process.env.BETTER_AUTH_SECRET?.trim() || process.env.AUTH0_SECRET?.trim();
+const AUTH_SECRET = process.env.BETTER_AUTH_SECRET?.trim();
 
 if (!AUTH_SECRET) {
   throw new Error(
