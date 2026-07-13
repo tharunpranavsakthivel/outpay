@@ -16,6 +16,7 @@ const MIGRATIONS_DIRECTORY = path.resolve(
   "../../db/migrations",
 );
 const TARGET_MIGRATION = "0004_payment_pipeline_support";
+const CLEANUP_MIGRATION = "0010_remove_unscheduled_billing_and_contact_schema";
 
 async function readMigrationFile(
   suffix: "up.sql" | "down.sql",
@@ -144,5 +145,57 @@ describe("db/migrations integrity", () => {
     expect(tableDropIndex).toBeGreaterThan(-1);
     expect(columnDropIndex).toBeGreaterThan(-1);
     expect(columnDropIndex).toBeLessThan(tableDropIndex);
+  });
+
+  it("removes only unscheduled billing/contact objects and restores their structure on rollback", async () => {
+    const [upContents, downContents] = await Promise.all([
+      readFile(
+        path.join(MIGRATIONS_DIRECTORY, `${CLEANUP_MIGRATION}.up.sql`),
+        "utf8",
+      ),
+      readFile(
+        path.join(MIGRATIONS_DIRECTORY, `${CLEANUP_MIGRATION}.down.sql`),
+        "utf8",
+      ),
+    ]);
+    const removedTables = [
+      "pricing_plans",
+      "merchant_plan_assignments",
+      "merchant_usage_monthly",
+      "fee_ledger_entries",
+      "enterprise_contact_requests",
+    ];
+    const removedEnums = [
+      "plan_status_enum",
+      "enterprise_request_type_enum",
+      "enterprise_request_status_enum",
+      "fee_entry_type_enum",
+    ];
+
+    for (const table of removedTables) {
+      expect(upContents).toMatch(
+        new RegExp(`drop table if exists public\\.${table}\\b`),
+      );
+      expect(downContents).toMatch(new RegExp(`create table ${table}\\b`));
+    }
+
+    for (const enumName of removedEnums) {
+      expect(upContents).toMatch(
+        new RegExp(`drop type if exists public\\.${enumName}\\b`),
+      );
+      expect(downContents).toMatch(new RegExp(`create type ${enumName}\\b`));
+    }
+
+    expect(upContents).toMatch(
+      /alter table public\.merchants\s+drop column if exists default_pricing_plan_id/,
+    );
+    expect(downContents).toMatch(
+      /add column default_pricing_plan_id uuid references public\.pricing_plans\(id\)/,
+    );
+    expect(upContents).not.toMatch(
+      /drop table if exists public\.merchant_reviews/,
+    );
+    expect(upContents).not.toMatch(/drop table if exists public\.error_logs/);
+    expect(upContents).not.toMatch(/drop table if exists public\.event_logs/);
   });
 });

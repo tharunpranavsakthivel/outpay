@@ -4,7 +4,7 @@
 
 ### What exists in the repository
 
-The current `outpay` repository is a Next.js 16 App Router frontend prototype with route pages and view components, but no implemented API route handlers under `src/app/api` and no real background worker code. The schema below is therefore based on:
+The current `outpay` repository is a Next.js 16 App Router application with implemented API route handlers, PostgreSQL-backed server flows, and queue/worker code. The schema below is grounded in the current repository surfaces and migration history, with later migrations taking precedence over the initial design snapshot.
 
 - Actual application screens and forms in `src/views/*`
 - Route structure in `src/app/*`
@@ -222,21 +222,19 @@ Observed features:
 - Implementation planning inquiries
 - Partnerships inquiries
 
-Database support required:
+Current persistence decision:
 
-- Pricing plans
-- Merchant billing plan assignment
-- Usage ledger
-- Fee ledger
-- Sales / enterprise contact requests
+- Pricing and sales copy remains UI-only for now.
+- No billing, metering, fee-ledger, or enterprise-contact workflow is scheduled.
+- Reintroduce those tables in a future feature migration when a consuming workflow exists.
 
 ### Important repository-driven implementation notes
 
-1. The repo is UI-first. There are no production route handlers or worker implementations yet, so worker-facing tables must be inferred from visible payment and webhook states.
+1. The schema is now partly implemented. Active API and worker paths are the authority for operational tables; product copy alone does not justify a persisted table.
 2. The UI and docs use both `chk_*` and `ch_*` style checkout identifiers. The schema should use internal UUID primary keys plus a separate public `checkout_ref` to avoid hard-coupling to either prefix until the API is standardized.
-3. The app is explicitly non-custodial. Do not model processor-held balances. Any billing/fees should be recorded as platform usage accounting, not merchant custody balances.
+3. The app is explicitly non-custodial. No billing or platform-fee ledger tables are active until a billing workflow is scheduled.
 4. The repository does not currently include a public store directory route, but the product brief does. The schema below supports it through merchant public profile and verification fields.
-5. No dedicated admin screens exist yet, but support workflows are implied by store deactivation/reactivation, wallet review risk, enterprise contact routing, and webhook retry operations.
+5. No dedicated admin screens exist yet, but support workflows are implied by store deactivation/reactivation, wallet review risk, and webhook retry operations. `merchant_reviews` remains reserved for T-42; enterprise contact requests are not persisted until T-44 is wired.
 
 ## 2. Core Product Entities
 
@@ -302,7 +300,6 @@ Database support required:
 | `verification_status` | `merchant_verification_status_enum` | yes | `'unverified'` | supports verified directory stores |
 | `is_directory_listed` | `boolean` | yes | `false` | public directory control |
 | `directory_summary` | `text` | no | `null` | public listing summary |
-| `default_pricing_plan_id` | `uuid` | no | `null` | FK to `pricing_plans.id` |
 | `deactivated_at` | `timestamptz` | no | `null` | danger zone workflow |
 | `deactivated_reason` | `text` | no | `null` | support / risk reason |
 | `created_by_user_id` | `uuid` | yes | none | FK to `user_profiles.id` |
@@ -311,7 +308,6 @@ Database support required:
 
 - Foreign keys:
   - `logo_asset_id -> file_assets.id`
-  - `default_pricing_plan_id -> pricing_plans.id`
   - `created_by_user_id -> user_profiles.id`
 - Unique constraints:
   - `unique(public_slug)`
@@ -794,8 +790,8 @@ Database support required:
 
 ### Table: `payment_match_failures`
 
-- Purpose: Record mismatched, partial, wrong-network, wrong-token, or late transfers that should not mark a checkout paid.
-- Justified by: customer warnings about exact amount and Base-only, plus product requirement to avoid costly mistakes
+- Purpose: Record mismatched, partial, wrong-network, wrong-token, duplicate, or late transfers that should not mark a checkout paid.
+- Active implementation: `src/lib/payments/match-payment.ts` inserts these rows during the transactional payment-matching path.
 
 | Column | Type | Required | Default | Notes |
 |---|---|---:|---|---|
@@ -859,123 +855,7 @@ Database support required:
 - RLS:
   - Worker/service role only; not merchant-readable.
 
-### Table: `merchant_usage_monthly`
-
-- Purpose: Monthly usage counters for free allowance and billable transaction calculations.
-- Justified by: `src/views/Pricing.tsx`
-
-| Column | Type | Required | Default | Notes |
-|---|---|---:|---|---|
-| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
-| `merchant_id` | `uuid` | yes | none | FK |
-| `usage_month` | `date` | yes | none | normalized to first day of month |
-| `paid_checkout_count` | `integer` | yes | `0` | count only paid checkouts |
-| `free_allowance_count` | `integer` | yes | `1000` | snapshot from plan |
-| `billable_checkout_count` | `integer` | yes | `0` | |
-| `gross_volume_usd` | `numeric(20,2)` | yes | `0` | |
-| `platform_fee_usd` | `numeric(20,2)` | yes | `0` | |
-| `pricing_plan_id` | `uuid` | no | `null` | FK snapshot |
-| `created_at` | `timestamptz` | yes | `now()` | |
-| `updated_at` | `timestamptz` | yes | `now()` | |
-
-- Unique constraints:
-  - `unique(merchant_id, usage_month)`
-- Indexes:
-  - `idx_merchant_usage_monthly_merchant_month`
-- RLS:
-  - Merchant members read own rows.
-  - Billing job/service role updates.
-
-### Table: `fee_ledger_entries`
-
-- Purpose: Immutable fee/accounting events for Outpay charges.
-- Justified by: `src/views/Pricing.tsx`; required because Outpay charges platform fees without custody
-
-| Column | Type | Required | Default | Notes |
-|---|---|---:|---|---|
-| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
-| `merchant_id` | `uuid` | yes | none | FK |
-| `payment_id` | `uuid` | no | `null` | FK |
-| `usage_month` | `date` | yes | none | |
-| `entry_type` | `fee_entry_type_enum` | yes | none | usage_fee/manual_adjustment/credit |
-| `amount_usd` | `numeric(20,2)` | yes | none | positive charge or negative credit |
-| `description` | `text` | yes | none | |
-| `created_at` | `timestamptz` | yes | `now()` | |
-
-- Indexes:
-  - `idx_fee_ledger_entries_merchant_month`
-- RLS:
-  - Merchant members read own rows.
-  - Billing/admin service writes.
-
 ## 4. Merchant Dashboard and Admin Features
-
-### Table: `pricing_plans`
-
-- Purpose: Catalog of free, standard, and corporate pricing plans.
-- Justified by: `src/views/Pricing.tsx`, `src/views/Contact.tsx`
-
-| Column | Type | Required | Default | Notes |
-|---|---|---:|---|---|
-| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
-| `code` | `citext` | yes | none | `free`, `standard_usage`, `corporate` |
-| `name` | `text` | yes | none | |
-| `status` | `plan_status_enum` | yes | `'active'` | |
-| `monthly_free_paid_transactions` | `integer` | yes | `0` | |
-| `usage_fee_rate` | `numeric(8,6)` | yes | `0` | 0.015 |
-| `description` | `text` | no | `null` | |
-| `created_at` | `timestamptz` | yes | `now()` | |
-
-- Unique constraints:
-  - `unique(code)`
-
-### Table: `merchant_plan_assignments`
-
-- Purpose: Merchant-to-plan lifecycle including corporate upgrades.
-- Justified by: pricing and contact-sales flows
-
-| Column | Type | Required | Default | Notes |
-|---|---|---:|---|---|
-| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
-| `merchant_id` | `uuid` | yes | none | FK |
-| `pricing_plan_id` | `uuid` | yes | none | FK |
-| `starts_at` | `timestamptz` | yes | `now()` | |
-| `ends_at` | `timestamptz` | no | `null` | |
-| `assigned_by_user_id` | `uuid` | no | `null` | FK |
-| `notes` | `text` | no | `null` | |
-| `created_at` | `timestamptz` | yes | `now()` | |
-
-- Indexes:
-  - `idx_merchant_plan_assignments_merchant_active`
-- RLS:
-  - Merchant members read current plan.
-  - Admin/billing staff manage.
-
-### Table: `enterprise_contact_requests`
-
-- Purpose: Capture corporate pricing, implementation, and partnership inquiries.
-- Justified by: `src/views/Contact.tsx`, `src/views/Pricing.tsx`, `src/views/Company.tsx`
-
-| Column | Type | Required | Default | Notes |
-|---|---|---:|---|---|
-| `id` | `uuid` | yes | `gen_random_uuid()` | PK |
-| `merchant_id` | `uuid` | no | `null` | FK if existing merchant |
-| `request_type` | `enterprise_request_type_enum` | yes | none | pricing/implementation/partnership/general |
-| `work_email` | `citext` | yes | none | |
-| `company_name` | `text` | yes | none | |
-| `monthly_transaction_volume` | `text` | no | `null` | freeform because UI accepts text |
-| `message` | `text` | yes | none | |
-| `status` | `enterprise_request_status_enum` | yes | `'new'` | |
-| `assigned_to_user_id` | `uuid` | no | `null` | support/sales owner |
-| `created_at` | `timestamptz` | yes | `now()` | |
-| `updated_at` | `timestamptz` | yes | `now()` | |
-
-- Indexes:
-  - `idx_enterprise_contact_requests_status`
-  - `idx_enterprise_contact_requests_work_email`
-- RLS:
-  - Public insert allowed through form handler.
-  - Only internal admin/sales can read/update.
 
 ### Table: `merchant_reviews`
 
@@ -1058,7 +938,7 @@ Database support required:
 ### Table: `api_idempotency_keys`
 
 - Purpose: Prevent duplicate checkout creation retries.
-- Justified by: `src/views/Changelog.tsx`, `src/views/MarketingDetailPage.tsx`
+- Active implementation: `src/app/api/v1/checkouts/route.ts` stores and replays idempotent checkout responses.
 
 | Column | Type | Required | Default | Notes |
 |---|---|---:|---|---|
@@ -1217,7 +1097,7 @@ Database support required:
 ### Table: `audit_logs`
 
 - Purpose: Durable audit trail for sensitive merchant and system operations.
-- Justified by: wallet changes, deactivation, API key handling, webhook configuration
+- Active implementation: `src/lib/dashboard/server.ts` records audit events for merchant, wallet, checkout, webhook, and API-key mutations.
 
 | Column | Type | Required | Default | Notes |
 |---|---|---:|---|---|
@@ -1244,8 +1124,8 @@ Database support required:
 
 ### Table: `event_logs`
 
-- Purpose: Product analytics / domain events for reporting and operational debugging.
-- Justified by: dashboard metrics, funnel questions, public/merchant product analytics
+- Purpose: Domain events for payment matching, reconciliation recovery, reporting, and operational debugging.
+- Active implementation: `src/lib/payments/match-payment.ts` records payment and reconciler events; additional producers can append domain events as workflows become active.
 
 | Column | Type | Required | Default | Notes |
 |---|---|---:|---|---|
@@ -1310,9 +1190,6 @@ Recommended PostgreSQL enums:
 - `payment_match_status_enum`: `awaiting_payment`, `detected`, `confirmed`, `mismatched`, `expired`
 - `payment_status_enum`: `pending`, `paid`, `failed`, `expired`
 - `payment_failure_type_enum`: `wrong_network`, `wrong_token`, `amount_mismatch`, `late_payment`, `duplicate_payment`, `recipient_mismatch`, `unknown`
-- `plan_status_enum`: `active`, `archived`
-- `enterprise_request_type_enum`: `pricing`, `implementation`, `partnership`, `general`
-- `enterprise_request_status_enum`: `new`, `qualified`, `contacted`, `closed`
 - `merchant_review_type_enum`: `onboarding`, `verification`, `reactivation`, `risk`
 - `merchant_review_status_enum`: `open`, `in_review`, `approved`, `rejected`, `closed`
 - `notification_type_enum`: `payment_paid`, `payment_pending`, `checkout_expired`, `webhook_failed`, `webhook_recovered`, `store_status_changed`
@@ -1327,7 +1204,6 @@ Recommended PostgreSQL enums:
 - `integration_status_enum`: `active`, `disabled`, `error`
 - `rate_limit_scope_enum`: `merchant`, `api_key`, `ip`
 - `actor_type_enum`: `user`, `system`, `worker`, `api_key`
-- `fee_entry_type_enum`: `usage_fee`, `manual_adjustment`, `credit`
 - `audit_action_enum`: `merchant_created`, `merchant_updated`, `wallet_changed`, `checkout_created`, `checkout_deactivated`, `payment_confirmed`, `webhook_endpoint_updated`, `api_key_created`, `api_key_revoked`, `store_deactivated`, `store_reactivated`
 - `error_source_enum`: `web`, `api`, `worker`, `webhook`
 - `error_severity_enum`: `warning`, `error`, `critical`
@@ -1352,9 +1228,6 @@ High-level relationship mapping:
 - `merchants 1:N notifications`
 - `merchants 1:N audit_logs`
 - `merchants 1:N error_logs`
-- `merchants 1:N enterprise_contact_requests`
-- `pricing_plans 1:N merchant_plan_assignments`
-- `pricing_plans 1:N merchants` via default/current plan references
 
 Practical flow:
 
@@ -1371,7 +1244,6 @@ Practical flow:
 11. Checkout becomes paid in `checkout_sessions` and `checkout_status_history`.
 12. `webhook_events` and `webhook_delivery_attempts` are created.
 13. Notification entries are inserted.
-14. Monthly usage and fee ledgers are updated.
 
 ## 9. Indexes and Performance Recommendations
 
@@ -1387,7 +1259,6 @@ Critical indexes:
 - `onchain_transactions(to_address_normalized, observed_at desc)` for worker matching.
 - `webhook_delivery_attempts(webhook_event_id, attempt_number)` for delivery history.
 - `webhook_delivery_attempts(next_retry_at)` for retry scheduler.
-- `merchant_usage_monthly(merchant_id, usage_month)` for pricing dashboards.
 - `notifications(user_id, is_read, created_at desc)` for bell dropdown.
 - `audit_logs(merchant_id, created_at desc)` for admin/support review.
 
@@ -1457,41 +1328,37 @@ Recommended creation order:
 1. Enable extensions and helper functions
 2. Create enums
 3. Create `file_assets`
-4. Create `pricing_plans`
-5. Create `blockchains`
-6. Create `tokens`
-7. Create `user_profiles`
-8. Create `merchants`
-9. Create `merchant_members`
-10. Create `merchant_onboarding`
-11. Create `customers`
-12. Create `wallet_addresses`
-13. Create `wallet_change_requests`
-14. Create `api_keys`
-15. Create `webhook_endpoints`
-16. Create `integration_installations`
-17. Create `checkout_sessions`
-18. Create `checkout_status_history`
-19. Create `payment_intents`
-20. Create `onchain_transactions`
-21. Create `payments`
-22. Create `payment_match_failures`
-23. Create `webhook_events`
-24. Create `webhook_delivery_attempts`
-25. Create `merchant_plan_assignments`
-26. Create `merchant_usage_monthly`
-27. Create `fee_ledger_entries`
-28. Create `enterprise_contact_requests`
-29. Create `merchant_reviews`
-30. Create `notifications`
-31. Create `audit_logs`
-32. Create `event_logs`
-33. Create `error_logs`
-34. Add policies, indexes, views, and triggers
-35. Create `provider_events_raw`, `chain_cursors`; add `checkout_sessions.idempotency_key`, `wallet_addresses.updated_at`, and the `payments`/`webhook_events` join-column indexes (`db/migrations/0004_payment_pipeline_support.up.sql`)
-36. Add `wallet_addresses.verification_signature` to retain the wallet-ownership signature proof captured during onboarding/wallet replacement (`db/migrations/0005_wallet_verification_signature.up.sql`)
+4. Create `blockchains`
+5. Create `tokens`
+6. Create `user_profiles`
+7. Create `merchants`
+8. Create `merchant_members`
+9. Create `merchant_onboarding`
+10. Create `customers`
+11. Create `wallet_addresses`
+12. Create `wallet_change_requests`
+13. Create `api_keys`
+14. Create `webhook_endpoints`
+15. Create `integration_installations`
+16. Create `checkout_sessions`
+17. Create `checkout_status_history`
+18. Create `payment_intents`
+19. Create `onchain_transactions`
+20. Create `payments`
+21. Create `payment_match_failures`
+22. Create `webhook_events`
+23. Create `webhook_delivery_attempts`
+24. Create `merchant_reviews`
+25. Create `notifications`
+26. Create `audit_logs`
+27. Create `event_logs`
+28. Create `error_logs`
+29. Create `api_idempotency_keys`
+30. Create `api_rate_limit_counters`
+31. Create `provider_events_raw` and `chain_cursors`; add later payment-pipeline columns and indexes through migrations
+32. Add policies, indexes, and triggers
 
-`db/migrations/` is the source of truth for the schema that actually exists; this document (and the SQL in §12 below) reflects the state as of the initial migration and is not kept in lockstep with every later migration.
+`db/migrations/` is the source of truth for the schema that actually exists. This document and the SQL in §12 describe the current active schema; later feature migrations must update both when they introduce new persisted workflows.
 
 ## 12. Final PostgreSQL/Supabase SQL Schema
 
@@ -1524,9 +1391,6 @@ create type checkout_source_enum as enum ('dashboard', 'api', 'integration');
 create type payment_match_status_enum as enum ('awaiting_payment', 'detected', 'confirmed', 'mismatched', 'expired');
 create type payment_status_enum as enum ('pending', 'paid', 'failed', 'expired');
 create type payment_failure_type_enum as enum ('wrong_network', 'wrong_token', 'amount_mismatch', 'late_payment', 'duplicate_payment', 'recipient_mismatch', 'unknown');
-create type plan_status_enum as enum ('active', 'archived');
-create type enterprise_request_type_enum as enum ('pricing', 'implementation', 'partnership', 'general');
-create type enterprise_request_status_enum as enum ('new', 'qualified', 'contacted', 'closed');
 create type merchant_review_type_enum as enum ('onboarding', 'verification', 'reactivation', 'risk');
 create type merchant_review_status_enum as enum ('open', 'in_review', 'approved', 'rejected', 'closed');
 create type notification_type_enum as enum ('payment_paid', 'payment_pending', 'checkout_expired', 'webhook_failed', 'webhook_recovered', 'store_status_changed');
@@ -1541,7 +1405,6 @@ create type integration_provider_enum as enum ('custom', 'shopify', 'woocommerce
 create type integration_status_enum as enum ('active', 'disabled', 'error');
 create type rate_limit_scope_enum as enum ('merchant', 'api_key', 'ip');
 create type actor_type_enum as enum ('user', 'system', 'worker', 'api_key');
-create type fee_entry_type_enum as enum ('usage_fee', 'manual_adjustment', 'credit');
 create type audit_action_enum as enum ('merchant_created', 'merchant_updated', 'wallet_changed', 'checkout_created', 'checkout_deactivated', 'payment_confirmed', 'webhook_endpoint_updated', 'api_key_created', 'api_key_revoked', 'store_deactivated', 'store_reactivated');
 create type error_source_enum as enum ('web', 'api', 'worker', 'webhook');
 create type error_severity_enum as enum ('warning', 'error', 'critical');
@@ -1555,17 +1418,6 @@ create table file_assets (
   byte_size bigint not null check (byte_size >= 0),
   sha256 text,
   uploaded_by_user_id uuid,
-  created_at timestamptz not null default now()
-);
-
-create table pricing_plans (
-  id uuid primary key default gen_random_uuid(),
-  code citext not null unique,
-  name text not null,
-  status plan_status_enum not null default 'active',
-  monthly_free_paid_transactions integer not null default 0 check (monthly_free_paid_transactions >= 0),
-  usage_fee_rate numeric(8,6) not null default 0 check (usage_fee_rate >= 0),
-  description text,
   created_at timestamptz not null default now()
 );
 
@@ -1623,7 +1475,6 @@ create table merchants (
   verification_status merchant_verification_status_enum not null default 'unverified',
   is_directory_listed boolean not null default false,
   directory_summary text,
-  default_pricing_plan_id uuid references pricing_plans(id),
   deactivated_at timestamptz,
   deactivated_reason text,
   created_by_user_id uuid not null references user_profiles(id),
@@ -1907,57 +1758,6 @@ create table webhook_delivery_attempts (
   unique (webhook_event_id, attempt_number)
 );
 
-create table merchant_plan_assignments (
-  id uuid primary key default gen_random_uuid(),
-  merchant_id uuid not null references merchants(id) on delete cascade,
-  pricing_plan_id uuid not null references pricing_plans(id),
-  starts_at timestamptz not null default now(),
-  ends_at timestamptz,
-  assigned_by_user_id uuid references user_profiles(id),
-  notes text,
-  created_at timestamptz not null default now()
-);
-
-create table merchant_usage_monthly (
-  id uuid primary key default gen_random_uuid(),
-  merchant_id uuid not null references merchants(id) on delete cascade,
-  usage_month date not null,
-  paid_checkout_count integer not null default 0 check (paid_checkout_count >= 0),
-  free_allowance_count integer not null default 1000 check (free_allowance_count >= 0),
-  billable_checkout_count integer not null default 0 check (billable_checkout_count >= 0),
-  gross_volume_usd numeric(20,2) not null default 0,
-  platform_fee_usd numeric(20,2) not null default 0,
-  pricing_plan_id uuid references pricing_plans(id),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (merchant_id, usage_month)
-);
-
-create table fee_ledger_entries (
-  id uuid primary key default gen_random_uuid(),
-  merchant_id uuid not null references merchants(id) on delete cascade,
-  payment_id uuid references payments(id),
-  usage_month date not null,
-  entry_type fee_entry_type_enum not null,
-  amount_usd numeric(20,2) not null,
-  description text not null,
-  created_at timestamptz not null default now()
-);
-
-create table enterprise_contact_requests (
-  id uuid primary key default gen_random_uuid(),
-  merchant_id uuid references merchants(id),
-  request_type enterprise_request_type_enum not null,
-  work_email citext not null,
-  company_name text not null,
-  monthly_transaction_volume text,
-  message text not null,
-  status enterprise_request_status_enum not null default 'new',
-  assigned_to_user_id uuid references user_profiles(id),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
 create table merchant_reviews (
   id uuid primary key default gen_random_uuid(),
   merchant_id uuid not null references merchants(id) on delete cascade,
@@ -2091,11 +1891,6 @@ create index idx_webhook_events_delivery_status on webhook_events(delivery_statu
 create index idx_webhook_delivery_attempts_event_attempt on webhook_delivery_attempts(webhook_event_id, attempt_number);
 create index idx_webhook_delivery_attempts_next_retry_at on webhook_delivery_attempts(next_retry_at);
 create index idx_webhook_delivery_attempts_response_status_code on webhook_delivery_attempts(response_status_code);
-create index idx_merchant_plan_assignments_merchant_active on merchant_plan_assignments(merchant_id, starts_at desc);
-create index idx_merchant_usage_monthly_merchant_month on merchant_usage_monthly(merchant_id, usage_month desc);
-create index idx_fee_ledger_entries_merchant_month on fee_ledger_entries(merchant_id, usage_month desc);
-create index idx_enterprise_contact_requests_status on enterprise_contact_requests(status, created_at desc);
-create index idx_enterprise_contact_requests_work_email on enterprise_contact_requests(work_email);
 create index idx_merchant_reviews_merchant_status on merchant_reviews(merchant_id, status);
 create index idx_notifications_user_unread on notifications(user_id, is_read, created_at desc);
 create index idx_notifications_merchant_created_at on notifications(merchant_id, created_at desc);
@@ -2150,22 +1945,12 @@ create trigger trg_payments_updated_at
 before update on payments
 for each row execute function set_updated_at();
 
-create trigger trg_merchant_usage_monthly_updated_at
-before update on merchant_usage_monthly
-for each row execute function set_updated_at();
-
-create trigger trg_enterprise_contact_requests_updated_at
-before update on enterprise_contact_requests
-for each row execute function set_updated_at();
 ```
 
 ### Recommended seeded MVP rows
 
 - `blockchains`: one `base` row
 - `tokens`: one `USDC` row on Base
-- `pricing_plans`:
-  - `free` or `standard_usage` with `monthly_free_paid_transactions = 1000`
-  - `corporate`
 
 ### Final implementation guidance
 
