@@ -41,8 +41,10 @@ import {
 import type {
   AccountSettingsData,
   ApiKeyListItem,
+  CheckoutDetailPageData,
   CheckoutListItem,
   CheckoutListPageData,
+  CheckoutStatusHistoryItem,
   CreateCheckoutFormData,
   CreateCheckoutPageData,
   CreateCheckoutResult,
@@ -63,6 +65,7 @@ import type {
   PublicStoreDirectoryData,
   RecentPaymentItem,
   StoreSettingsData,
+  WalletChangeHistoryItem,
   WebhookDeliveryItem,
 } from "./types";
 
@@ -264,6 +267,19 @@ export class MerchantInactiveError extends Error {
     );
     this.merchantStatus = status;
     this.name = "MerchantInactiveError";
+  }
+}
+
+/**
+ * Identifies a checkout reference that is absent from the current merchant's
+ * checkout sessions, preventing callers from learning another merchant's data.
+ */
+export class MerchantCheckoutNotFoundError extends Error {
+  readonly code = "CHECKOUT_NOT_FOUND" as const;
+
+  constructor() {
+    super("Checkout was not found for this merchant.");
+    this.name = "MerchantCheckoutNotFoundError";
   }
 }
 
@@ -1392,6 +1408,195 @@ export async function getCheckoutListPageData(): Promise<CheckoutListPageData> {
           redirectUrl: checkout.redirect_url,
           status: checkout.status,
         }),
+      ),
+      merchant: context.merchant,
+    };
+  } finally {
+    await database.release();
+  }
+}
+
+type CheckoutStatusHistoryRow = {
+  actor_name: string | null;
+  actor_type: string;
+  created_at: string;
+  from_status: string | null;
+  id: string;
+  message: string | null;
+  reason_code: string | null;
+  to_status: string;
+};
+
+/**
+ * Reads immutable status transitions for one checkout already scoped to a
+ * merchant-owned checkout session.
+ *
+ * Parameters:
+ * - database: Database connection used for the read.
+ * - checkoutId: UUID of the merchant-owned checkout session.
+ *
+ * Returns:
+ * - Status history ordered from the first transition to the latest.
+ */
+async function readCheckoutStatusHistory(
+  database: DatabaseSql,
+  checkoutId: string,
+): Promise<CheckoutStatusHistoryItem[]> {
+  const rows = await database<CheckoutStatusHistoryRow[]>`
+    select
+      h.id::text as id,
+      h.from_status::text as from_status,
+      h.to_status::text as to_status,
+      h.reason_code::text as reason_code,
+      h.message,
+      h.actor_type::text as actor_type,
+      coalesce(up.full_name, up.email::text) as actor_name,
+      h.created_at::text as created_at
+    from checkout_status_history h
+    left join user_profiles up
+      on up.id = h.actor_user_id
+    where h.checkout_session_id = ${checkoutId}::uuid
+    order by h.created_at asc, h.id asc
+  `;
+
+  return rows.map(
+    (row): CheckoutStatusHistoryItem => ({
+      actorName: row.actor_name,
+      actorType: row.actor_type,
+      createdAt: row.created_at,
+      fromStatus: row.from_status,
+      id: row.id,
+      message: row.message,
+      reasonCode: row.reason_code,
+      toStatus: row.to_status,
+    }),
+  );
+}
+
+/**
+ * Returns status history for a checkout owned by the authenticated merchant.
+ *
+ * Parameters:
+ * - checkoutRef: Human-facing checkout reference from the route.
+ *
+ * Returns:
+ * - Checkout reference and its immutable status timeline.
+ *
+ * Throws:
+ * - `MerchantCheckoutNotFoundError` when the reference is not owned by the
+ *   authenticated merchant.
+ */
+export async function getCheckoutStatusHistory(checkoutRef: string): Promise<{
+  checkoutRef: string;
+  history: CheckoutStatusHistoryItem[];
+}> {
+  const context = await getMerchantContext();
+  const database = await connectToDatabase();
+
+  try {
+    const [checkout] = await database.sql<
+      { checkout_id: string; checkout_ref: string }[]
+    >`
+      select cs.id::text as checkout_id, cs.checkout_ref
+      from checkout_sessions cs
+      where cs.merchant_id = ${context.merchant.merchantId}
+        and cs.checkout_ref = ${checkoutRef}
+      limit 1
+    `;
+
+    if (!checkout) {
+      throw new MerchantCheckoutNotFoundError();
+    }
+
+    return {
+      checkoutRef: checkout.checkout_ref,
+      history: await readCheckoutStatusHistory(
+        database.sql,
+        checkout.checkout_id,
+      ),
+    };
+  } finally {
+    await database.release();
+  }
+}
+
+/**
+ * Returns the merchant-facing checkout detail page and its status timeline.
+ *
+ * Parameters:
+ * - checkoutRef: Human-facing checkout reference from the dashboard URL.
+ *
+ * Returns:
+ * - Checkout summary, merchant shell data, and chronological status history.
+ *
+ * Throws:
+ * - `MerchantCheckoutNotFoundError` when the checkout is not owned by the
+ *   authenticated merchant.
+ */
+export async function getCheckoutDetailPageData(
+  checkoutRef: string,
+): Promise<CheckoutDetailPageData> {
+  const context = await getMerchantContext();
+  const database = await connectToDatabase();
+
+  try {
+    const [checkout] = await database.sql<
+      {
+        amount_token: string;
+        checkout_id: string;
+        checkout_ref: string;
+        created_at: string;
+        order_reference: string | null;
+        paid_at: string | null;
+        public_token: string;
+        redirect_url: string | null;
+        status: string;
+        symbol: string;
+        title: string;
+      }[]
+    >`
+      select
+        cs.id::text as checkout_id,
+        cs.checkout_ref,
+        cs.public_token,
+        cs.label as title,
+        cs.order_reference,
+        cs.amount_token::text as amount_token,
+        t.symbol::text as symbol,
+        cs.status::text as status,
+        cs.created_at::text as created_at,
+        cs.paid_at::text as paid_at,
+        cs.redirect_url
+      from checkout_sessions cs
+      join tokens t
+        on t.id = cs.token_id
+      where cs.merchant_id = ${context.merchant.merchantId}
+        and cs.checkout_ref = ${checkoutRef}
+      limit 1
+    `;
+
+    if (!checkout) {
+      throw new MerchantCheckoutNotFoundError();
+    }
+
+    return {
+      checkout: {
+        amountLabel: formatTokenAmount(checkout.amount_token, checkout.symbol),
+        canDeactivate:
+          checkout.status === "pending" || checkout.status === "detected",
+        checkoutId: checkout.checkout_id,
+        checkoutRef: checkout.checkout_ref,
+        createdAt: formatShortDate(checkout.created_at) ?? checkout.created_at,
+        label: checkout.title,
+        orderReference: checkout.order_reference,
+        paidAt: checkout.paid_at,
+        publicToken: checkout.public_token,
+        redirectUrl: checkout.redirect_url,
+        status: checkout.status,
+      },
+      history: await readCheckoutStatusHistory(
+        database.sql,
+        checkout.checkout_id,
       ),
       merchant: context.merchant,
     };
@@ -2592,6 +2797,37 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
       where m.id = ${context.merchant.merchantId}
       limit 1
     `;
+    const walletChangeRows = await database.sql<
+      {
+        applied_at: string | null;
+        created_at: string;
+        id: string;
+        new_wallet_address: string;
+        notes: string | null;
+        old_wallet_address: string | null;
+        requested_by: string | null;
+        status: string;
+      }[]
+    >`
+      select
+        wcr.id::text as id,
+        old_wallet.address as old_wallet_address,
+        new_wallet.address as new_wallet_address,
+        wcr.status::text as status,
+        wcr.applied_at::text as applied_at,
+        wcr.notes,
+        coalesce(up.full_name, up.email::text) as requested_by,
+        wcr.created_at::text as created_at
+      from wallet_change_requests wcr
+      left join wallet_addresses old_wallet
+        on old_wallet.id = wcr.old_wallet_id
+      join wallet_addresses new_wallet
+        on new_wallet.id = wcr.new_wallet_id
+      join user_profiles up
+        on up.id = wcr.requested_by_user_id
+      where wcr.merchant_id = ${context.merchant.merchantId}
+      order by wcr.created_at desc, wcr.id desc
+    `;
 
     return {
       billing: {
@@ -2618,6 +2854,18 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
       webhookStatus: merchantDetails?.status ?? null,
       webhookUrl: merchantDetails?.url ?? null,
       websiteUrl: merchantDetails?.website_url ?? null,
+      walletChangeHistory: walletChangeRows.map(
+        (row): WalletChangeHistoryItem => ({
+          appliedAt: row.applied_at,
+          createdAt: row.created_at,
+          id: row.id,
+          newWalletAddress: row.new_wallet_address,
+          notes: row.notes,
+          oldWalletAddress: row.old_wallet_address,
+          requestedBy: row.requested_by,
+          status: row.status,
+        }),
+      ),
     };
   } finally {
     await database.release();

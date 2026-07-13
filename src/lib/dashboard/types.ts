@@ -97,6 +97,23 @@ export interface CheckoutListPageData {
   checkouts: CheckoutListItem[];
 }
 
+export interface CheckoutStatusHistoryItem {
+  actorName: string | null;
+  actorType: string;
+  createdAt: string;
+  fromStatus: string | null;
+  id: string;
+  message: string | null;
+  reasonCode: string | null;
+  toStatus: string;
+}
+
+export interface CheckoutDetailPageData {
+  checkout: CheckoutListItem;
+  history: CheckoutStatusHistoryItem[];
+  merchant: MerchantShellData;
+}
+
 export interface CreateCheckoutFormData {
   label: string;
   amountUsd: string;
@@ -163,6 +180,18 @@ export interface StoreSettingsData {
   webhookStatus: string | null;
   webhookSecretPrefix: string | null;
   lastWebhookTestAt: string | null;
+  walletChangeHistory: WalletChangeHistoryItem[];
+}
+
+export interface WalletChangeHistoryItem {
+  appliedAt: string | null;
+  createdAt: string;
+  id: string;
+  newWalletAddress: string;
+  notes: string | null;
+  oldWalletAddress: string | null;
+  requestedBy: string | null;
+  status: string;
 }
 
 export interface PublicStore {

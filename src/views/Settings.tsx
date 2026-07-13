@@ -14,11 +14,19 @@ import {
 } from "../components/ui/Card";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Input } from "../components/ui/Input";
+import { StatusPill } from "../components/ui/StatusPill";
 import { Switch } from "../components/ui/Switch";
 import { useToast } from "../components/ui/Toast";
 import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
-import { formatDashboardDate, formatUsd } from "../lib/dashboard/format";
-import type { StoreSettingsData } from "../lib/dashboard/types";
+import {
+  formatDashboardDate,
+  formatUsd,
+  truncateIdentifier,
+} from "../lib/dashboard/format";
+import type {
+  StoreSettingsData,
+  WalletChangeHistoryItem,
+} from "../lib/dashboard/types";
 import {
   type FieldErrors,
   getApiErrorMessage,
@@ -26,6 +34,51 @@ import {
   hasApiError,
 } from "../lib/validation/client";
 import type { WalletSignatureProof } from "../lib/wallet/browser-wallet";
+
+/**
+ * Renders one merchant-scoped payout-wallet replacement with both wallet
+ * endpoints, status, timestamp, and requester metadata.
+ */
+function WalletChangeHistoryRow({
+  change,
+}: {
+  change: WalletChangeHistoryItem;
+}) {
+  return (
+    <div className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium">
+          {formatDashboardDate(change.createdAt)}
+        </div>
+        <StatusPill>{change.status}</StatusPill>
+      </div>
+      <div className="grid gap-1 text-xs text-foreground-lighter sm:grid-cols-[auto_1fr] sm:gap-x-3">
+        <span>Previous wallet</span>
+        <span
+          className="font-mono break-all"
+          title={change.oldWalletAddress ?? "No previous wallet"}
+        >
+          {change.oldWalletAddress
+            ? truncateIdentifier(change.oldWalletAddress)
+            : "No previous wallet"}
+        </span>
+        <span>New wallet</span>
+        <span className="font-mono break-all" title={change.newWalletAddress}>
+          {truncateIdentifier(change.newWalletAddress)}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-lighter">
+        {change.appliedAt && (
+          <span>Applied {formatDashboardDate(change.appliedAt)}</span>
+        )}
+        {change.requestedBy && <span>Requested by {change.requestedBy}</span>}
+      </div>
+      {change.notes && (
+        <div className="text-xs text-foreground-light">{change.notes}</div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Merchant settings view backed by merchants, wallet_addresses, and
@@ -69,6 +122,9 @@ export default function Settings({
   );
   const [lastWebhookTestAt, setLastWebhookTestAt] = useState(
     initialData.lastWebhookTestAt,
+  );
+  const [walletChangeHistory, setWalletChangeHistory] = useState(
+    initialData.walletChangeHistory,
   );
   const [profileErrors, setProfileErrors] = useState<FieldErrors>({});
   const [walletErrors, setWalletErrors] = useState<FieldErrors>({});
@@ -154,6 +210,36 @@ export default function Settings({
       setWalletAddress(walletPayload.walletAddress);
       setModal(null);
       setWalletProof(null);
+
+      try {
+        const historyResponse = await fetch("/api/settings/store-profile");
+        const historyPayload: unknown = await historyResponse.json();
+        if (
+          !historyResponse.ok ||
+          typeof historyPayload !== "object" ||
+          historyPayload === null ||
+          !Array.isArray(
+            (historyPayload as { walletChangeHistory?: unknown })
+              .walletChangeHistory,
+          )
+        ) {
+          throw new Error(
+            "Wallet history refresh returned an invalid response.",
+          );
+        }
+
+        setWalletChangeHistory(
+          (historyPayload as { walletChangeHistory: WalletChangeHistoryItem[] })
+            .walletChangeHistory,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? "Wallet changed, but history could not be refreshed. Reload Settings to see it."
+            : "Wallet changed, but history could not be refreshed.",
+        );
+      }
+
       toast.success("Primary payout wallet updated.");
     });
   };
@@ -485,6 +571,28 @@ export default function Settings({
                   Change wallet
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Wallet change history</CardTitle>
+              <CardDescription>
+                An audit trail of payout-wallet replacements for this store.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="border-b-0">
+              {walletChangeHistory.length > 0 ? (
+                <div className="flex flex-col divide-y divide-border">
+                  {walletChangeHistory.map((change) => (
+                    <WalletChangeHistoryRow key={change.id} change={change} />
+                  ))}
+                </div>
+              ) : (
+                <div className="py-3 text-sm text-foreground-lighter">
+                  No payout-wallet changes have been recorded.
+                </div>
+              )}
             </CardContent>
           </Card>
 

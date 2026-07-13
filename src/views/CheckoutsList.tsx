@@ -135,10 +135,15 @@ export default function CheckoutsList({
                   {checkouts.map((checkout, index) => (
                     <TableRow key={checkout.checkoutId}>
                       <TableCell className="font-medium">
-                        <div>{checkout.label}</div>
-                        <div className="text-xs text-foreground-lighter mt-1">
-                          {checkout.orderReference ?? checkout.checkoutRef}
-                        </div>
+                        <Link
+                          href={`/checkouts/${checkout.checkoutRef}`}
+                          className="no-underline hover:underline"
+                        >
+                          <div>{checkout.label}</div>
+                          <div className="text-xs text-foreground-lighter mt-1">
+                            {checkout.orderReference ?? checkout.checkoutRef}
+                          </div>
+                        </Link>
                       </TableCell>
                       <TableCell>{checkout.amountLabel}</TableCell>
                       <TableCell>
