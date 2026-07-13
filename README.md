@@ -40,6 +40,26 @@ bun run dev
 
 Open `http://localhost:3001` after the server starts.
 
+## Tigris/S3 logo storage
+
+Merchant store-logo uploads use Tigris, an S3-compatible object-storage
+provider. Create a bucket in the [Tigris console](https://console.storage.dev/)
+and set these values in `.env` (the same variables are listed in
+`.env.example`):
+
+```dotenv
+AWS_ACCESS_KEY_ID=your-tigris-access-key-id
+AWS_SECRET_ACCESS_KEY=your-tigris-secret-access-key
+AWS_ENDPOINT_URL_S3=https://t3.storage.dev
+AWS_ENDPOINT_URL_IAM=https://iam.storage.dev
+AWS_REGION=auto
+TIGRIS_BUCKET_NAME=your-bucket-name
+```
+
+The app requires `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_ENDPOINT_URL_S3`, and `TIGRIS_BUCKET_NAME` for logo upload and retrieval.
+Keep the access and secret keys private.
+
 ## Database setup
 
 The database tooling resolves connections in this order using the variable names defined in `.env.example`:
@@ -66,6 +86,20 @@ Validate that the required schema objects were created with:
 bun run db:validate
 ```
 
+To inspect the tables and row counts that would be cleared, run the dry run:
+
+```bash
+bun run db:clear
+```
+
+> **Destructive operation:** `bun run db:clear -- --execute` truncates the
+> application tables in the `auth` and `public` schemas with
+> `RESTART IDENTITY CASCADE`. It requires typing the exact database name and
+> does not include `public.schema_migrations` unless
+> `--include-migrations` is also supplied. Never run it against a production
+> database unless you have explicitly reviewed the target and accepted the
+> data-loss risk.
+
 Roll back the most recent migration with:
 
 ```bash
@@ -79,6 +113,18 @@ bun run db:migrate:down
 - On a plain PostgreSQL database, the first migration creates a minimal `auth.users` compatibility table so the documented foreign keys can be created from scratch.
 - Better Auth adds its own auth tables in the next migration while mirroring core profile data into `auth.users` and `user_profiles`.
 - Migration `0012_usage_metering_billing` seeds the `free`, `standard_usage`, and `corporate` pricing plans. Confirmed paid payments update monthly usage and create usage-fee ledger entries after the allowance.
+
+## Known limitations
+
+- The payment-verification pipeline is still undergoing audit remediation.
+  Queue, provider, reconciliation, and merchant-webhook workers exist, but the
+  production-readiness gap is not fully closed. Use `ARCHITECTURE.md` and the
+  latest production-readiness audit as the target-state and remediation
+  references before treating payment processing as production-ready.
+- The `OUTPAY_SECRET_KEY`, `OUTPAY_TEST_SECRET_KEY`, `OUTPAY_LIVE_SECRET_KEY`,
+  `OUTPAY_PUBLIC_KEY`, and `OUTPAY_WEBHOOK_SIGNING_SECRET` values in
+  `.env.example` are reserved placeholders and are not consumed by the current
+  application. They are not usable integration credentials until T-14 ships.
 
 ## Quality checks
 
