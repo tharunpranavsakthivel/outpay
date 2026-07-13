@@ -19,6 +19,7 @@ const REQUIRED_ENUMS = [
   "checkout_status_reason_enum",
   "error_severity_enum",
   "error_source_enum",
+  "fee_entry_type_enum",
   "integration_provider_enum",
   "integration_status_enum",
   "member_status_enum",
@@ -32,6 +33,7 @@ const REQUIRED_ENUMS = [
   "payment_failure_type_enum",
   "payment_match_status_enum",
   "payment_status_enum",
+  "plan_status_enum",
   "rate_limit_scope_enum",
   "resource_type_enum",
   "two_factor_status_enum",
@@ -59,8 +61,10 @@ const REQUIRED_TABLES = [
   "integration_installations",
   "merchant_members",
   "merchant_onboarding",
+  "merchant_plan_assignments",
   "merchant_reviews",
   "merchants",
+  "merchant_usage_monthly",
   "notifications",
   "onchain_transactions",
   "payment_intents",
@@ -68,6 +72,7 @@ const REQUIRED_TABLES = [
   "payments",
   "provider_health_checks",
   "provider_events_raw",
+  "pricing_plans",
   "schema_migrations",
   "tokens",
   "user_profiles",
@@ -76,6 +81,7 @@ const REQUIRED_TABLES = [
   "webhook_delivery_attempts",
   "webhook_endpoints",
   "webhook_events",
+  "fee_ledger_entries",
 ] as const;
 const REQUIRED_INDEXES = [
   "idx_api_idempotency_keys_expires_at",
@@ -101,11 +107,14 @@ const REQUIRED_INDEXES = [
   "idx_event_logs_merchant_occurred_at",
   "idx_file_assets_owner_merchant_id",
   "idx_file_assets_storage_path",
+  "idx_fee_ledger_entries_merchant_month",
   "idx_integration_installations_merchant_provider",
   "idx_merchant_members_merchant_role",
   "idx_merchant_members_user_id",
   "idx_merchant_onboarding_status",
+  "idx_merchant_plan_assignments_merchant_active",
   "idx_merchant_reviews_merchant_status",
+  "idx_merchant_usage_monthly_merchant_month",
   "idx_merchants_directory_listed_true",
   "idx_merchants_public_slug",
   "idx_merchants_status",
@@ -144,13 +153,17 @@ const REQUIRED_INDEXES = [
   "idx_webhook_events_delivery_status",
   "idx_webhook_events_merchant_emitted_at",
   "idx_webhook_events_payment_id",
+  "uq_fee_ledger_entries_usage_payment",
   "uq_checkout_sessions_merchant_idempotency_key",
   "uq_customers_merchant_external_customer_ref",
   "uq_integration_installations_merchant_provider_external_store",
   "uq_onchain_transactions_hash_log",
   "uq_wallet_addresses_merchant_address",
 ] as const;
-const REQUIRED_FUNCTIONS = ["set_updated_at"] as const;
+const REQUIRED_FUNCTIONS = [
+  "record_paid_payment_usage",
+  "set_updated_at",
+] as const;
 const REQUIRED_TRIGGERS = [
   "trg_checkout_sessions_updated_at",
   "trg_customers_updated_at",
@@ -160,6 +173,8 @@ const REQUIRED_TRIGGERS = [
   "trg_merchants_updated_at",
   "trg_payment_intents_updated_at",
   "trg_payments_updated_at",
+  "trg_payments_usage_metering",
+  "trg_merchant_usage_monthly_updated_at",
   "trg_user_profiles_updated_at",
   "trg_wallet_addresses_updated_at",
   "trg_webhook_endpoints_updated_at",
@@ -167,28 +182,16 @@ const REQUIRED_TRIGGERS = [
 const REMOVED_ENUMS = [
   "enterprise_request_status_enum",
   "enterprise_request_type_enum",
-  "fee_entry_type_enum",
-  "plan_status_enum",
 ] as const;
-const REMOVED_TABLES = [
-  "enterprise_contact_requests",
-  "fee_ledger_entries",
-  "merchant_plan_assignments",
-  "merchant_usage_monthly",
-  "pricing_plans",
-] as const;
+const REMOVED_TABLES = ["enterprise_contact_requests"] as const;
 const REMOVED_INDEXES = [
   "idx_enterprise_contact_requests_status",
   "idx_enterprise_contact_requests_work_email",
-  "idx_fee_ledger_entries_merchant_month",
-  "idx_merchant_plan_assignments_merchant_active",
-  "idx_merchant_usage_monthly_merchant_month",
 ] as const;
 const REMOVED_TRIGGERS = [
   "trg_enterprise_contact_requests_updated_at",
-  "trg_merchant_usage_monthly_updated_at",
 ] as const;
-const REMOVED_COLUMNS = ["merchants.default_pricing_plan_id"] as const;
+const REMOVED_COLUMNS = [] as const;
 
 /**
  * Runs catalog checks against the active database connection.

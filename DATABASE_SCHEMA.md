@@ -224,15 +224,21 @@ Observed features:
 
 Current persistence decision:
 
-- Pricing and sales copy remains UI-only for now.
-- No billing, metering, fee-ledger, or enterprise-contact workflow is scheduled.
-- Reintroduce those tables in a future feature migration when a consuming workflow exists.
+- Migration `0012_usage_metering_billing` restores pricing, merchant plan
+  assignments, monthly usage, and fee-ledger persistence for T-43.
+- Only confirmed paid payment transitions are metered. Unpaid, expired, and
+  failed payment rows do not count.
+- The public `standard_usage` plan provides 1,000 free confirmed paid
+  transactions monthly and charges 1.5% on each later payment. `corporate`
+  remains a manually managed custom-terms plan.
 
 ### Important repository-driven implementation notes
 
 1. The schema is now partly implemented. Active API and worker paths are the authority for operational tables; product copy alone does not justify a persisted table.
 2. The UI and docs use both `chk_*` and `ch_*` style checkout identifiers. The schema should use internal UUID primary keys plus a separate public `checkout_ref` to avoid hard-coupling to either prefix until the API is standardized.
-3. The app is explicitly non-custodial. No billing or platform-fee ledger tables are active until a billing workflow is scheduled.
+3. The app is explicitly non-custodial. Billing records describe Outpay's
+   platform fee only; customer funds continue to settle directly to merchant
+   wallets.
 4. The repository does not currently include a public store directory route, but the product brief does. The schema below supports it through merchant public profile and verification fields.
 5. No dedicated admin screens exist yet, but support workflows are implied by store deactivation/reactivation, wallet review risk, and webhook retry operations. `merchant_reviews` remains reserved for T-42; enterprise contact requests are not persisted until T-44 is wired.
 

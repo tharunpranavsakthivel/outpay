@@ -17,7 +17,7 @@ import { Input } from "../components/ui/Input";
 import { Switch } from "../components/ui/Switch";
 import { useToast } from "../components/ui/Toast";
 import { WalletVerificationPanel } from "../components/wallet/WalletVerificationPanel";
-import { formatDashboardDate } from "../lib/dashboard/format";
+import { formatDashboardDate, formatUsd } from "../lib/dashboard/format";
 import type { StoreSettingsData } from "../lib/dashboard/types";
 import {
   type FieldErrors,
@@ -305,6 +305,73 @@ export default function Settings({
               >
                 Save changes
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Billing &amp; usage</CardTitle>
+              <CardDescription>
+                Confirmed paid payments are metered monthly. Unpaid, expired,
+                and failed payments do not count.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4 border-b-0">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div>
+                  <div className="text-xs text-foreground-lighter">Plan</div>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {initialData.billing.planName}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-foreground-lighter">
+                    Paid this month
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {initialData.billing.paidCheckoutCount.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-foreground-lighter">
+                    Free remaining
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {Math.max(
+                      0,
+                      initialData.billing.freeAllowanceCount -
+                        initialData.billing.paidCheckoutCount,
+                    ).toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-foreground-lighter">
+                    Platform fees
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-foreground">
+                    {formatUsd(initialData.billing.platformFeeUsd)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-foreground-lighter">
+                <span>
+                  {initialData.billing.billableCheckoutCount.toLocaleString()}{" "}
+                  billable payments
+                </span>
+                <span>
+                  {formatUsd(initialData.billing.grossVolumeUsd)} gross volume
+                </span>
+                <span>
+                  {(Number(initialData.billing.usageFeeRate) * 100).toFixed(2)}%{" "}
+                  after the allowance
+                </span>
+                <span>
+                  Resets{" "}
+                  {formatDashboardDate(
+                    `${initialData.billing.usageMonth}T00:00:00.000Z`,
+                  )}
+                </span>
+              </div>
             </CardContent>
           </Card>
 

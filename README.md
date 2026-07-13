@@ -78,7 +78,7 @@ bun run db:migrate:down
 - `auth.users` is required by the schema. On Supabase, the existing auth table is used as-is.
 - On a plain PostgreSQL database, the first migration creates a minimal `auth.users` compatibility table so the documented foreign keys can be created from scratch.
 - Better Auth adds its own auth tables in the next migration while mirroring core profile data into `auth.users` and `user_profiles`.
-- The schema migration does not seed pricing plans, blockchains, or tokens because this task is limited to structure creation.
+- Migration `0012_usage_metering_billing` seeds the `free`, `standard_usage`, and `corporate` pricing plans. Confirmed paid payments update monthly usage and create usage-fee ledger entries after the allowance.
 
 ## Quality checks
 

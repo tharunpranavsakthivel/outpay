@@ -757,14 +757,17 @@ export async function completeMerchantOnboarding(input: {
               display_name,
               description,
               support_email,
+              default_pricing_plan_id,
               created_by_user_id
-            ) values (
+            ) select
               ${await buildUniqueMerchantSlug(sql, storeName)},
               ${storeName},
               ${storeDescription || null},
               ${email},
+              pricing_plan.id,
               ${userId}::uuid
-            )
+            from pricing_plans pricing_plan
+            where pricing_plan.code = 'standard_usage'
             returning id::text as id
           `
         )[0].id;
@@ -2511,7 +2514,8 @@ export async function listMerchantPayments(
 }
 
 /**
- * Returns store settings backed by merchants, wallets, tokens, and webhooks.
+ * Returns store settings backed by merchant profile, billing usage, wallets,
+ * tokens, and webhooks.
  */
 export async function getStoreSettingsData(): Promise<StoreSettingsData> {
   const context = await getMerchantContext();
@@ -2521,12 +2525,21 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
   try {
     const [merchantDetails] = await database.sql<
       {
+        billable_checkout_count: number | null;
+        free_allowance_count: number | null;
+        gross_volume_usd: string | null;
         last_test_sent_at: string | null;
+        paid_checkout_count: number | null;
+        plan_code: string | null;
+        plan_name: string | null;
+        platform_fee_usd: string | null;
         signing_secret_prefix: string | null;
         directory_summary: string | null;
         is_directory_listed: boolean;
         status: string | null;
         url: string | null;
+        usage_fee_rate: string | null;
+        usage_month: string;
         website_url: string | null;
       }[]
     >`
@@ -2537,16 +2550,63 @@ export async function getStoreSettingsData(): Promise<StoreSettingsData> {
         we.url,
         we.status::text as status,
         we.signing_secret_prefix,
-        we.last_test_sent_at::text as last_test_sent_at
+        we.last_test_sent_at::text as last_test_sent_at,
+        coalesce(usage.usage_month, date_trunc('month', current_date)::date)::text as usage_month,
+        coalesce(usage.paid_checkout_count, 0)::integer as paid_checkout_count,
+        coalesce(usage.free_allowance_count, pricing_plan.monthly_free_paid_transactions, 0)::integer as free_allowance_count,
+        coalesce(usage.billable_checkout_count, 0)::integer as billable_checkout_count,
+        coalesce(usage.gross_volume_usd, 0)::text as gross_volume_usd,
+        coalesce(usage.platform_fee_usd, 0)::text as platform_fee_usd,
+        coalesce(pricing_plan.code::text, 'standard_usage') as plan_code,
+        coalesce(pricing_plan.name, 'Standard usage') as plan_name,
+        coalesce(pricing_plan.usage_fee_rate, 0)::text as usage_fee_rate
       from merchants m
       left join webhook_endpoints we
         on we.merchant_id = m.id
        and we.environment = 'live'
+      left join lateral (
+        select
+          plan.id,
+          plan.code,
+          plan.name,
+          plan.monthly_free_paid_transactions,
+          plan.usage_fee_rate
+        from pricing_plans plan
+        where plan.id = coalesce(
+          (
+            select assignment.pricing_plan_id
+            from merchant_plan_assignments assignment
+            where assignment.merchant_id = m.id
+              and assignment.starts_at <= now()
+              and (assignment.ends_at is null or assignment.ends_at > now())
+            order by assignment.starts_at desc
+            limit 1
+          ),
+          m.default_pricing_plan_id,
+          (select fallback.id from pricing_plans fallback where fallback.code = 'standard_usage')
+        )
+      ) pricing_plan on true
+      left join merchant_usage_monthly usage
+        on usage.merchant_id = m.id
+       and usage.usage_month = date_trunc('month', current_date)::date
       where m.id = ${context.merchant.merchantId}
       limit 1
     `;
 
     return {
+      billing: {
+        billableCheckoutCount: merchantDetails?.billable_checkout_count ?? 0,
+        freeAllowanceCount: merchantDetails?.free_allowance_count ?? 0,
+        grossVolumeUsd: merchantDetails?.gross_volume_usd ?? "0.00",
+        paidCheckoutCount: merchantDetails?.paid_checkout_count ?? 0,
+        planCode: merchantDetails?.plan_code ?? "standard_usage",
+        planName: merchantDetails?.plan_name ?? "Standard usage",
+        platformFeeUsd: merchantDetails?.platform_fee_usd ?? "0.00",
+        usageFeeRate: merchantDetails?.usage_fee_rate ?? "0.015000",
+        usageMonth:
+          merchantDetails?.usage_month ??
+          `${new Date().toISOString().slice(0, 7)}-01`,
+      },
       chainName: wallet?.blockchainName ?? "Base",
       directorySummary: merchantDetails?.directory_summary ?? null,
       isDirectoryListed: merchantDetails?.is_directory_listed ?? false,

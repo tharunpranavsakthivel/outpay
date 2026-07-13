@@ -16,9 +16,14 @@ import { useMemo, useState } from "react";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
 import { Button } from "../components/ui/Button";
+import {
+  calculateProjectedUsageFee,
+  STANDARD_FREE_TRANSACTION_ALLOWANCE,
+  STANDARD_USAGE_FEE_RATE,
+} from "../lib/billing/metering";
 
-const FREE_TRANSACTIONS = 1000;
-const OUTPAY_RATE = 0.015;
+const FREE_TRANSACTIONS = STANDARD_FREE_TRANSACTION_ALLOWANCE;
+const OUTPAY_RATE = STANDARD_USAGE_FEE_RATE;
 const PROCESSOR_RATE = 0.029;
 const PROCESSOR_FIXED_FEE = 0.3;
 
@@ -112,7 +117,12 @@ export default function Pricing() {
   const savingsModel = useMemo(() => {
     const monthlyVolume = transactions * averageOrderValue;
     const billableTransactions = Math.max(0, transactions - FREE_TRANSACTIONS);
-    const outpayFee = billableTransactions * averageOrderValue * OUTPAY_RATE;
+    const outpayFee = calculateProjectedUsageFee({
+      averageOrderValueUsd: averageOrderValue,
+      freeTransactionAllowance: FREE_TRANSACTIONS,
+      transactionCount: transactions,
+      usageFeeRate: OUTPAY_RATE,
+    });
     const processorFee =
       monthlyVolume * PROCESSOR_RATE + transactions * PROCESSOR_FIXED_FEE;
     const savings = Math.max(0, processorFee - outpayFee);

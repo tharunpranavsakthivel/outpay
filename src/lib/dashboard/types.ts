@@ -151,6 +151,7 @@ export interface PaymentsPageData {
 }
 
 export interface StoreSettingsData {
+  billing: BillingUsageData;
   directorySummary: string | null;
   isDirectoryListed: boolean;
   merchant: MerchantShellData;
@@ -171,6 +172,18 @@ export interface PublicStore {
   logoUrl: string | null;
   publicSlug: string;
   websiteUrl: string | null;
+}
+
+export interface BillingUsageData {
+  billableCheckoutCount: number;
+  freeAllowanceCount: number;
+  grossVolumeUsd: string;
+  paidCheckoutCount: number;
+  planCode: string;
+  planName: string;
+  platformFeeUsd: string;
+  usageFeeRate: string;
+  usageMonth: string;
 }
 
 export interface PublicStoreDirectoryData {
