@@ -3997,6 +3997,7 @@ export async function getPublicCheckoutData(
           address: string;
           amount_token: string;
           chain_name: string;
+          chain_numeric_id: number;
           checkout_ref: string;
           display_name: string;
           expires_at: string;
@@ -4018,6 +4019,7 @@ export async function getPublicCheckoutData(
           m.display_name,
           wa.address,
           b.display_name as chain_name,
+          b.chain_numeric_id,
           t.symbol::text as symbol
         from checkout_sessions cs
         join merchants m
@@ -4047,7 +4049,7 @@ export async function getPublicCheckoutData(
       expiresAt: checkout.expires_at,
       merchantName: checkout.display_name,
       orderDescription: checkout.label,
-      paymentUri: `ethereum:${checkout.address}@8453?value=${checkout.amount_token}`,
+      paymentUri: `ethereum:${checkout.address}@${checkout.chain_numeric_id}?value=${checkout.amount_token}`,
       publicToken: checkout.public_token,
       redirectUrl: checkout.redirect_url,
       status:
