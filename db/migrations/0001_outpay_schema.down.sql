@@ -1,5 +1,10 @@
 -- Reverts the initial Outpay application schema while leaving the migration
 -- bookkeeping table in place.
+--
+-- This rollback must run after 0002_better_auth and 0003_user_avatar_color
+-- when using scripts/db/migrate.ts. The Better Auth "user" table does not
+-- have a foreign key to user_profiles, so rolling back 0001 in isolation
+-- removes the profile bridge while leaving the auth tables applied.
 
 drop table if exists public.api_rate_limit_counters cascade;
 drop table if exists public.api_idempotency_keys cascade;
@@ -73,3 +78,25 @@ drop type if exists public.merchant_status_enum cascade;
 drop type if exists public.two_factor_status_enum cascade;
 
 drop function if exists public.set_updated_at() cascade;
+
+-- citext and pgcrypto are created by this migration, but later migrations may
+-- still use their types/functions when this file is run out of order. Avoid
+-- CASCADE: keep an extension that has external dependents and let the normal
+-- reverse-order migration runner remove it during a complete rollback.
+do $$
+begin
+  begin
+    drop extension if exists citext;
+  exception
+    when dependent_objects_still_exist then
+      raise notice 'Keeping citext because other database objects still depend on it.';
+  end;
+
+  begin
+    drop extension if exists pgcrypto;
+  exception
+    when dependent_objects_still_exist then
+      raise notice 'Keeping pgcrypto because other database objects still depend on it.';
+  end;
+end;
+$$;

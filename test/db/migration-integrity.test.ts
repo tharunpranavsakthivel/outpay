@@ -16,6 +16,7 @@ const MIGRATIONS_DIRECTORY = path.resolve(
   "../../db/migrations",
 );
 const TARGET_MIGRATION = "0004_payment_pipeline_support";
+const INITIAL_SCHEMA_MIGRATION = "0001_outpay_schema";
 const CLEANUP_MIGRATION = "0010_remove_unscheduled_billing_and_contact_schema";
 const CATALOG_SEED_MIGRATION = "0014_seed_base_usdc";
 
@@ -24,6 +25,22 @@ async function readMigrationFile(
 ): Promise<string> {
   return readFile(
     path.join(MIGRATIONS_DIRECTORY, `${TARGET_MIGRATION}.${suffix}`),
+    "utf8",
+  );
+}
+
+/**
+ * Reads the initial schema migration used by the extension symmetry checks.
+ *
+ * @param suffix - The migration direction to read.
+ * @returns The SQL text for the selected initial-schema migration.
+ * @throws Propagates filesystem errors when the migration file is missing.
+ */
+async function readInitialSchemaMigration(
+  suffix: "up.sql" | "down.sql",
+): Promise<string> {
+  return readFile(
+    path.join(MIGRATIONS_DIRECTORY, `${INITIAL_SCHEMA_MIGRATION}.${suffix}`),
     "utf8",
   );
 }
@@ -54,6 +71,22 @@ describe("db/migrations integrity", () => {
     expect(checksum).toHaveLength(64);
     expect(checksum).toBe(
       createHash("sha256").update(upContents).digest("hex"),
+    );
+  });
+
+  it("rolls back initial extensions symmetrically without breaking dependents", async () => {
+    const [upContents, downContents] = await Promise.all([
+      readInitialSchemaMigration("up.sql"),
+      readInitialSchemaMigration("down.sql"),
+    ]);
+
+    expect(upContents).toMatch(/create extension if not exists pgcrypto;/);
+    expect(upContents).toMatch(/create extension if not exists citext;/);
+    expect(downContents).toMatch(/drop extension if exists citext;/);
+    expect(downContents).toMatch(/drop extension if exists pgcrypto;/);
+    expect(downContents).toMatch(/when dependent_objects_still_exist/);
+    expect(downContents).toMatch(
+      /after 0002_better_auth and 0003_user_avatar_color/,
     );
   });
 

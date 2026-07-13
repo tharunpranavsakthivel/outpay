@@ -1416,6 +1416,21 @@ Recommended creation order:
 
 `db/migrations/` is the source of truth for the schema that actually exists. This document and the SQL in §12 describe the current active schema; later feature migrations must update both when they introduce new persisted workflows.
 
+### Rollback dependency
+
+`0001_outpay_schema` owns the shared `citext` and `pgcrypto` extensions, while
+`0004_payment_pipeline_support`, `0006_provider_health_checks`,
+`0012_usage_metering_billing`, and `0013_enterprise_contact_requests` still
+use their functions or types. The migration runner rolls back in reverse
+order, so `0002_better_auth` and `0003_user_avatar_color` (and any later
+migration still applied) must be reverted before `0001` for a clean down/up
+cycle. Better Auth's `"user"` table intentionally has no foreign key to
+`user_profiles`; rolling back `0001` in isolation therefore removes the
+application profile bridge without producing a database-level FK error. The
+`0001` down migration does not use `CASCADE` when dropping extensions: if an
+external object still depends on one, it leaves that extension installed and
+continues safely.
+
 ## 12. Final PostgreSQL/Supabase SQL Schema
 
 ```sql
