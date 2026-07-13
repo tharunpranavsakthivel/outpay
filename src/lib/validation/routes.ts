@@ -85,6 +85,21 @@ export const publicPaymentsQuerySchema = z.object({
   status: z.enum(["paid", "pending", "failed", "expired"]).optional(),
 });
 
+export const adminSearchQuerySchema = z.object({
+  search: z.string().trim().max(200).default(""),
+});
+
+export const adminReconciliationBodySchema = z.object({
+  chain: z.literal("base").default("base"),
+  fromBlock: z.coerce.number().finite().int().min(0),
+  toBlock: z.coerce.number().finite().int().min(0),
+});
+
+export const adminMerchantDisableBodySchema = z.object({
+  confirmationText: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500),
+});
+
 export const dashboardCheckoutBodySchema = z.object({
   amountUsd: z.string().trim().min(1, "Amount is required.").max(50),
   label: z.string().trim().min(1, "Checkout name is required.").max(200),

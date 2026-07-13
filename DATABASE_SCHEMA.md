@@ -281,6 +281,28 @@ Current persistence decision:
 }
 ```
 
+### Table: `admin_users`
+
+- Purpose: Explicit allow-list for support and operations users with
+  cross-merchant visibility.
+- Security boundary: A Better Auth session is insufficient on its own. Every
+  `/admin/*` page and `/api/admin/*` route must resolve the session email to a
+  `user_profiles.id` and require an active row here.
+
+| Column | Type | Required | Default | Notes |
+|---|---|---:|---|---|
+| `user_id` | `uuid` | yes | none | PK/FK to `user_profiles.id` |
+| `granted_by_user_id` | `uuid` | no | `null` | Admin profile that granted access |
+| `is_active` | `boolean` | yes | `true` | Revocation is fail-closed |
+| `created_at` | `timestamptz` | yes | `now()` | |
+| `updated_at` | `timestamptz` | yes | `now()` | |
+
+- Migration: `0011_admin_users`.
+- Provisioning: insert an existing `user_profiles.id` into `admin_users` via a
+  controlled deployment/DB operation; there is no self-service admin grant.
+- RLS: application routes enforce the allow-list before any cross-merchant
+  query. The table is never used as a client-controlled role claim.
+
 ### Table: `merchants`
 
 - Purpose: Canonical merchant/business/store record.
@@ -1121,6 +1143,10 @@ Current persistence decision:
   - Merchant owners/admins can read their merchant audit logs.
   - Support/admin can read all.
   - Only backend service inserts.
+- Admin operations use `action = 'admin_action'`, `actor_type = 'user'`, the
+  UUID from `admin_users.user_id`, and a metadata `operation` name so global
+  reads and mutations remain attributable without expanding the merchant role
+  model.
 
 ### Table: `event_logs`
 

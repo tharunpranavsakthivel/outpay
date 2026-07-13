@@ -6,6 +6,7 @@ import {
 } from "./lib/auth/cookies";
 
 const PROTECTED_ROUTE_PREFIXES = [
+  "/admin",
   "/dashboard",
   "/checkouts",
   "/payments",
