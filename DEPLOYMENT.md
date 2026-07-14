@@ -76,6 +76,12 @@ The web config enables Railway's deployment health check at `GET /api/health` wi
 30-second timeout. This endpoint is intentionally unauthenticated and returns HTTP
 503 when PostgreSQL is unavailable.
 
+Railway's public edge must remain in front of the web service so it can forward
+the trusted `X-Real-IP` request header. Better Auth uses that header for
+per-client rate-limit buckets and falls back to a validated single-value
+`X-Forwarded-For` header for local reverse-proxy deployments. Do not expose the
+web process directly or configure a broad `trustedProxies` range.
+
 ### `outpay-payment-worker`
 
 Required:

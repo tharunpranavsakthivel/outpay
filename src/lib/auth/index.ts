@@ -26,6 +26,13 @@ const AUTH_BASE_URL =
 
 const AUTH_SECRET = process.env.BETTER_AUTH_SECRET?.trim();
 
+// Railway's public edge forwards the client address in X-Real-IP. Keep the
+// standard X-Forwarded-For fallback for local reverse proxies, but do not
+// configure a broad trusted-proxy range: Better Auth safely validates a
+// single-value header without one, while an unbounded proxy range would allow
+// callers to influence their own rate-limit bucket.
+const BETTER_AUTH_IP_ADDRESS_HEADERS = ["x-real-ip", "x-forwarded-for"];
+
 if (!AUTH_SECRET) {
   throw new Error(
     "Better Auth secret is missing. Set BETTER_AUTH_SECRET in your environment.",
@@ -315,6 +322,11 @@ async function markLastLogin(userId: string): Promise<void> {
 }
 
 export const auth = betterAuth({
+  advanced: {
+    ipAddress: {
+      ipAddressHeaders: BETTER_AUTH_IP_ADDRESS_HEADERS,
+    },
+  },
   baseURL: AUTH_BASE_URL,
   database: {
     db: authDatabase,
