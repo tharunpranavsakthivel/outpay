@@ -74,6 +74,23 @@ return {1, 0}
 let configuredRateLimitStore: RateLimitStorage | null = null;
 
 /**
+ * Resolves whether signup requests should currently consume the signup rate
+ * limit bucket.
+ *
+ * Parameters:
+ * - env: Process environment containing the optional feature flag.
+ *
+ * Returns:
+ * - `true` only when `OUTPAY_SIGNUP_RATE_LIMIT_ENABLED` is explicitly set to
+ *   `true`; the default is intentionally disabled while signup is stabilized.
+ */
+export function isSignupRateLimitEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.OUTPAY_SIGNUP_RATE_LIMIT_ENABLED?.trim().toLowerCase() === "true";
+}
+
+/**
  * Parses the shared per-minute API rate-limit environment override.
  *
  * Parameters:

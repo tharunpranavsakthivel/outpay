@@ -16,6 +16,7 @@ import {
   consumeRateLimit,
   createAuthRateLimitError,
   getClientIp,
+  isSignupRateLimitEnabled,
   RATE_LIMIT_POLICIES,
 } from "@/lib/security/rate-limit";
 
@@ -90,10 +91,18 @@ function isAuthPayload(payload: unknown): payload is AuthPayload {
 async function maybeRateLimitAuthPost(request: Request) {
   const pathname = new URL(request.url).pathname;
   const clientIp = getClientIp(request);
+  const isSignupPath = pathname.endsWith(SIGNUP_PATH_SUFFIX);
+
+  // Keep the signup policy and storage implementation available for a future
+  // re-enable, but avoid locking out legitimate testers while signup is being
+  // stabilized. Other auth policies remain enforced below.
+  if (isSignupPath && !isSignupRateLimitEnabled()) {
+    return null;
+  }
 
   const matchedPolicy = pathname.endsWith("/sign-in/email")
     ? RATE_LIMIT_POLICIES.authLogin
-    : pathname.endsWith("/sign-up/email")
+    : isSignupPath
       ? RATE_LIMIT_POLICIES.authSignup
       : pathname.endsWith("/request-password-reset")
         ? RATE_LIMIT_POLICIES.authPasswordReset

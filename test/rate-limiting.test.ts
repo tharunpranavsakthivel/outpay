@@ -10,6 +10,7 @@ import {
   formatRateLimitMessage,
   getInMemoryRateLimitStore,
   InMemorySlidingWindowRateLimitStore,
+  isSignupRateLimitEnabled,
   RATE_LIMIT_POLICIES,
   type RateLimitStorage,
 } from "@/lib/security/rate-limit";
@@ -17,6 +18,16 @@ import {
 describe("route rate limiting", () => {
   beforeEach(() => {
     getInMemoryRateLimitStore().reset();
+  });
+
+  test("keeps signup rate limiting disabled unless explicitly enabled", () => {
+    expect(
+      isSignupRateLimitEnabled({ OUTPAY_SIGNUP_RATE_LIMIT_ENABLED: "false" }),
+    ).toBe(false);
+    expect(isSignupRateLimitEnabled({})).toBe(false);
+    expect(
+      isSignupRateLimitEnabled({ OUTPAY_SIGNUP_RATE_LIMIT_ENABLED: "true" }),
+    ).toBe(true);
   });
 
   test("blocks once a rolling window exceeds the configured limit", async () => {
