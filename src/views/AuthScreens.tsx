@@ -245,7 +245,7 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
         if (response.error) {
           const message = getAuthErrorMessage(
             response.error,
-            "Too many attempts, try again in a moment.",
+            "Unable to create account.",
           );
           setErrorMessage(message);
           toast.error(message);
@@ -370,7 +370,7 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
         if (response.error) {
           const message = getAuthErrorMessage(
             response.error,
-            "Too many attempts, try again in a moment.",
+            "Unable to log in.",
           );
           setErrorMessage(message);
           toast.error(message);

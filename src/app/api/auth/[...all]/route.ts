@@ -4,6 +4,7 @@
 
 import { toNextJsHandler } from "better-auth/next-js";
 import { auth } from "@/lib/auth";
+import { createJsonAuthRequest } from "@/lib/auth/request";
 import {
   applyServerLegalAcceptance,
   hasRequiredSignupLegalAcceptance,
@@ -73,29 +74,6 @@ function isAuthPayload(payload: unknown): payload is AuthPayload {
   return (
     typeof payload === "object" && payload !== null && !Array.isArray(payload)
   );
-}
-
-/**
- * Rebuilds a signup request after adding server-controlled legal timestamps.
- *
- * Parameters:
- * - request: Original signup request.
- * - payload: Parsed signup fields with server timestamps.
- *
- * Returns:
- * - Request containing JSON Better Auth can validate and persist.
- */
-function createTimestampedSignupRequest(
-  request: Request,
-  payload: AuthPayload,
-): Request {
-  const headers = new Headers(request.headers);
-  headers.set("content-type", "application/json");
-
-  return new Request(request, {
-    body: JSON.stringify(payload),
-    headers,
-  });
 }
 
 /**
@@ -176,10 +154,7 @@ async function handleAuthPost(request: Request) {
   }
 
   return authHandlers.POST(
-    createTimestampedSignupRequest(
-      request,
-      applyServerLegalAcceptance(payload),
-    ),
+    createJsonAuthRequest(request, applyServerLegalAcceptance(payload)),
   );
 }
 
