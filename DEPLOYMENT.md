@@ -72,6 +72,11 @@ integrations are enabled. The public provider webhook route is
 `/api/internal/provider-webhooks/alchemy`; its signature key must be present before
 registering the provider webhook.
 
+Set `BETTER_AUTH_URL` and `APP_BASE_URL` to the public application URL, such as
+`https://outpay.tech`. The auth module normalizes the configured URL to its origin
+for Better Auth trusted-origin checks, so an accidentally appended `/api/auth`
+path will not reject same-origin browser requests.
+
 The web config enables Railway's deployment health check at `GET /api/health` with a
 30-second timeout. This endpoint is intentionally unauthenticated and returns HTTP
 503 when PostgreSQL is unavailable.

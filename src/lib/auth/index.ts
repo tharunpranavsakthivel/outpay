@@ -23,6 +23,7 @@ const AUTH_BASE_URL =
   process.env.BETTER_AUTH_URL?.trim() ||
   process.env.APP_BASE_URL?.trim() ||
   "http://localhost:3000";
+const AUTH_ORIGIN = new URL(AUTH_BASE_URL).origin;
 
 const AUTH_SECRET = process.env.BETTER_AUTH_SECRET?.trim();
 
@@ -409,5 +410,5 @@ export const auth = betterAuth({
   },
   plugins: [nextCookies()],
   secret: AUTH_SECRET,
-  trustedOrigins: [AUTH_BASE_URL],
+  trustedOrigins: [AUTH_ORIGIN],
 });

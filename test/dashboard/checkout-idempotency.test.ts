@@ -35,6 +35,7 @@ describe("dashboard checkout idempotency", () => {
   it("replays one checkout for two submissions with the same key", async () => {
     let checkout: FakeCheckout | null = null;
     let checkoutInsertCount = 0;
+    let customerInsertCount = 0;
     let paymentIntentInsertCount = 0;
     let statusHistoryInsertCount = 0;
 
@@ -55,8 +56,23 @@ describe("dashboard checkout idempotency", () => {
     ) => {
       const query = strings.join(" ").toLowerCase();
 
+      if (query.includes("customer_email")) {
+        throw new Error(
+          "checkout_sessions does not contain the customer_email column",
+        );
+      }
+
       if (query.includes("from merchants")) {
         return [{ status: "active" }];
+      }
+
+      if (query.includes("from customers")) {
+        return [];
+      }
+
+      if (query.includes("insert into customers")) {
+        customerInsertCount += 1;
+        return [{ id: "customer-1" }];
       }
 
       if (
@@ -147,6 +163,7 @@ describe("dashboard checkout idempotency", () => {
       redirectUrl: "",
       source: "dashboard" as const,
       successUrl: "",
+      customerEmail: "buyer@example.com",
     };
 
     const [first, second] = await Promise.all([
@@ -156,6 +173,7 @@ describe("dashboard checkout idempotency", () => {
 
     expect(second).toEqual(first);
     expect(checkoutInsertCount).toBe(1);
+    expect(customerInsertCount).toBe(1);
     expect(paymentIntentInsertCount).toBe(1);
     expect(statusHistoryInsertCount).toBe(1);
   });

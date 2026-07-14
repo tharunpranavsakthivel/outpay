@@ -1953,6 +1953,52 @@ function sanitizeWebhookUrl(url: string | null): string | null {
 }
 
 /**
+ * Finds the merchant-scoped customer for an email address or creates one.
+ *
+ * Parameters:
+ * - sql: Active transaction-scoped Postgres client.
+ * - merchantId: Merchant that owns the customer record.
+ * - email: Validated customer email address.
+ *
+ * Returns:
+ * - The existing or newly created customer ID.
+ *
+ * Throws:
+ * - An error when the insert unexpectedly returns no customer ID.
+ */
+async function findOrCreateCheckoutCustomer(
+  sql: DatabaseSql,
+  merchantId: string,
+  email: string,
+): Promise<string> {
+  const existingCustomers = await sql<{ id: string }[]>`
+    select id::text as id
+    from customers
+    where merchant_id = ${merchantId}::uuid
+      and email = ${email}
+    limit 1
+  `;
+
+  if (existingCustomers[0]?.id) {
+    return existingCustomers[0].id;
+  }
+
+  const createdCustomers = await sql<{ id: string }[]>`
+    insert into customers (merchant_id, email)
+    values (${merchantId}::uuid, ${email})
+    returning id::text as id
+  `;
+
+  const customerId = createdCustomers[0]?.id;
+
+  if (!customerId) {
+    throw new Error("Customer record could not be created for checkout.");
+  }
+
+  return customerId;
+}
+
+/**
  * Creates or replays a dashboard checkout backed by checkout_sessions,
  * payment_intents, and checkout_status_history.
  */
@@ -2083,6 +2129,13 @@ export async function createCheckoutForMerchant(
         new Date(),
         expiryPolicy,
       );
+      const customerId = customerEmail
+        ? await findOrCreateCheckoutCustomer(
+            sql,
+            input.merchantId,
+            customerEmail,
+          )
+        : null;
 
       const rows = await sql<
         {
@@ -2098,6 +2151,7 @@ export async function createCheckoutForMerchant(
           checkout_ref,
           public_token,
           merchant_id,
+          customer_id,
           token_id,
           recipient_wallet_id,
           label,
@@ -2109,7 +2163,6 @@ export async function createCheckoutForMerchant(
           redirect_url,
           success_url,
           cancel_url,
-          customer_email,
           source,
           metadata,
           created_by_user_id,
@@ -2119,6 +2172,7 @@ export async function createCheckoutForMerchant(
           ${checkoutRef},
           ${publicToken},
           ${input.merchantId},
+          ${customerId},
           ${wallet.tokenId},
           ${wallet.walletId},
           ${label},
@@ -2130,7 +2184,6 @@ export async function createCheckoutForMerchant(
           ${redirectUrl ?? successUrl},
           ${successUrl},
           ${cancelUrl},
-          ${customerEmail || null},
           ${input.source},
           ${JSON.stringify(metadata)}::jsonb,
           ${input.createdByUserId ?? null},
@@ -2562,7 +2615,7 @@ export async function getMerchantCheckoutStatus(
           cs.status::text as status,
           cs.success_url,
           cs.cancel_url,
-          cs.customer_email,
+          c.email::text as customer_email,
           cs.metadata,
           cs.expires_at::text as expires_at,
           wa.address as recipient_address,
@@ -2585,6 +2638,8 @@ export async function getMerchantCheckoutStatus(
           on b.id = t.chain_id
         left join payments p
           on p.checkout_session_id = cs.id
+        left join customers c
+          on c.id = cs.customer_id
         left join onchain_transactions ot
           on ot.id = p.onchain_transaction_id
         where cs.merchant_id = ${merchantId}
