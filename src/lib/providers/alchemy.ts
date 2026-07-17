@@ -5,6 +5,7 @@
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isAddress } from "viem";
+import { parseRetryAfterMs } from "./retry-after";
 
 const ALCHEMY_BASE_RPC_URL = process.env.ALCHEMY_BASE_RPC_URL?.trim();
 const ALCHEMY_WEBHOOK_SIGNING_KEY =
@@ -66,12 +67,24 @@ interface JsonRpcResponse<T> {
 export class AlchemyRpcError extends Error {
   code?: number;
   data?: unknown;
+  httpStatus?: number;
+  retryAfterMs?: number;
 
-  constructor(message: string, options?: { code?: number; data?: unknown }) {
+  constructor(
+    message: string,
+    options?: {
+      code?: number;
+      data?: unknown;
+      httpStatus?: number;
+      retryAfterMs?: number;
+    },
+  ) {
     super(message);
     this.name = "AlchemyRpcError";
     this.code = options?.code;
     this.data = options?.data;
+    this.httpStatus = options?.httpStatus;
+    this.retryAfterMs = options?.retryAfterMs;
   }
 }
 
@@ -143,6 +156,11 @@ export async function alchemyRpcRequest<T>(
   if (!response.ok) {
     throw new AlchemyRpcError(
       `Alchemy RPC request failed with HTTP ${response.status}.`,
+      {
+        httpStatus: response.status,
+        retryAfterMs:
+          parseRetryAfterMs(response.headers.get("retry-after")) ?? undefined,
+      },
     );
   }
 

@@ -24,11 +24,15 @@ import {
   type NormalizedChainEvent,
   normalizeRpcTransferLogs,
 } from "@/lib/payments/normalize-event";
-import { alchemyRpcRequest } from "@/lib/providers/alchemy";
-import { chainstackRpcRequest } from "@/lib/providers/chainstack";
+import { AlchemyRpcError, alchemyRpcRequest } from "@/lib/providers/alchemy";
+import {
+  ChainstackRpcError,
+  chainstackRpcRequest,
+} from "@/lib/providers/chainstack";
 import { getLatestProviderHealthStatus } from "@/lib/providers/health";
 import {
   createProviderRouter,
+  ProviderRouterError,
   type RpcProviderName,
 } from "@/lib/providers/provider-router";
 
@@ -120,17 +124,65 @@ const BASE_CHAIN = "base";
 const BASE_USDC_CONTRACT = "0x833589fCD6eDb6E08f4C7C32D4f71b54bdA02913";
 const ERC20_TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-const RECENT_SCAN_WINDOW_BLOCKS = readPositiveIntegerEnv(
+
+/**
+ * Alchemy's Free-tier plan rejects `eth_getLogs` calls spanning more than 10
+ * blocks (HTTP 400). Every scan walks its target range in chunks of this
+ * size regardless of which provider ends up serving it, so scanning doesn't
+ * silently fail against the account's actual plan limits.
+ */
+const SCAN_CHUNK_BLOCKS = readPositiveIntegerEnv(
+  process.env.RECONCILER_CHUNK_BLOCKS?.trim(),
+  10,
+);
+
+/**
+ * One logical scan now spans both providers (Alchemy tried first, Chainstack
+ * as fallback), so there is a single progress cursor per cursor type rather
+ * than one per provider. It is stored under this provider name for schema
+ * compatibility with the existing `chain_cursors` table.
+ */
+const CURSOR_PROGRESS_PROVIDER: RpcProviderName = "alchemy";
+
+/**
+ * Confirmed against the live endpoints: Chainstack's current plan rejects
+ * both `eth_getLogs` and `eth_getBlockByNumber` for anything outside a
+ * near-tip window with HTTP 403 ("Archive, Debug and Trace requests are not
+ * available on your current plan"). It is a valid fallback for the `recent`
+ * scan (a shallow, near-tip range) but can never serve a `deep` scan, which
+ * by design reads hundreds to thousands of blocks behind the tip. Deep scans
+ * skip non-archive providers entirely instead of wasting a request (and a
+ * retry budget) on a call that can never succeed.
+ */
+const PROVIDER_ARCHIVE_CAPABILITY: Record<RpcProviderName, boolean> = {
+  alchemy: true,
+  chainstack: false,
+};
+
+export function filterProvidersForCursorType(
+  providerOrder: RpcProviderName[],
+  cursorType: CursorType,
+): RpcProviderName[] {
+  if (cursorType !== "deep") {
+    return providerOrder;
+  }
+
+  return providerOrder.filter(
+    (provider) => PROVIDER_ARCHIVE_CAPABILITY[provider],
+  );
+}
+
+const RECENT_LOOKBACK_BLOCKS = readPositiveIntegerEnv(
   process.env.RECONCILER_RECENT_WINDOW_BLOCKS?.trim(),
   180,
 );
-const DEEP_SCAN_WINDOW_BLOCKS = readPositiveIntegerEnv(
+const DEEP_LOOKBACK_BLOCKS = readPositiveIntegerEnv(
   process.env.RECONCILER_DEEP_WINDOW_BLOCKS?.trim(),
   4000,
 );
 const RECENT_SCAN_INTERVAL_MS = readPositiveIntegerEnv(
   process.env.RECONCILER_RECENT_INTERVAL_MS?.trim(),
-  90_000,
+  5 * 60_000,
 );
 const CONFIRMATION_SCAN_INTERVAL_MS = readPositiveIntegerEnv(
   process.env.RECONCILER_CONFIRMATION_INTERVAL_MS?.trim(),
@@ -138,12 +190,78 @@ const CONFIRMATION_SCAN_INTERVAL_MS = readPositiveIntegerEnv(
 );
 const DEEP_SCAN_INTERVAL_MS = readPositiveIntegerEnv(
   process.env.RECONCILER_DEEP_INTERVAL_MS?.trim(),
-  1_800_000,
+  24 * 60 * 60_000,
 );
 const CONFIRMATION_SCAN_BATCH_SIZE = readPositiveIntegerEnv(
   process.env.RECONCILER_CONFIRMATION_BATCH_SIZE?.trim(),
   50,
 );
+
+/**
+ * Alchemy's Free-tier plan enforces a short-term throughput cap (~500
+ * Compute Units Per Second), not just the eth_getLogs block-range cap. A
+ * burst of chunk scans and per-event lookups during catch-up can exceed it
+ * and get HTTP 429'd. Every RPC request the reconciler issues — including
+ * each internal attempt inside the provider router's own retry/failover —
+ * is spaced at least this far apart from the previous one.
+ */
+const RPC_MIN_REQUEST_INTERVAL_MS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RPC_MIN_INTERVAL_MS?.trim(),
+  275,
+);
+
+/** Bounded retry count for a single RPC-triggering operation before giving
+ * up on this chunk for the current cycle. The chunk is retried again on the
+ * next scheduled cycle since its cursor position is never advanced past it. */
+const RPC_RETRY_MAX_ATTEMPTS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RPC_MAX_RETRY_ATTEMPTS?.trim(),
+  6,
+);
+const RPC_RETRY_BASE_DELAY_MS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RPC_RETRY_BASE_DELAY_MS?.trim(),
+  1000,
+);
+const RPC_RETRY_MAX_DELAY_MS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RPC_RETRY_MAX_DELAY_MS?.trim(),
+  30_000,
+);
+
+let lastRpcRequestAt = 0;
+
+/**
+ * Blocks until at least `RPC_MIN_REQUEST_INTERVAL_MS` has elapsed since the
+ * previous paced request, enforcing a single sequential request stream
+ * (effective concurrency 1) against the configured throughput budget.
+ */
+async function pacedRpcGate(): Promise<void> {
+  const elapsed = Date.now() - lastRpcRequestAt;
+
+  if (elapsed < RPC_MIN_REQUEST_INTERVAL_MS) {
+    await sleep(RPC_MIN_REQUEST_INTERVAL_MS - elapsed);
+  }
+
+  lastRpcRequestAt = Date.now();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pacedAlchemyRpcRequest<T>(
+  method: string,
+  params?: readonly unknown[],
+): Promise<T> {
+  await pacedRpcGate();
+  return alchemyRpcRequest<T>(method, params);
+}
+
+async function pacedChainstackRpcRequest<T>(
+  method: string,
+  params?: readonly unknown[],
+): Promise<T> {
+  await pacedRpcGate();
+  return chainstackRpcRequest<T>(method, params);
+}
 
 const ROUTED_RPC = createProviderRouter({
   failoverEnabled: true,
@@ -161,13 +279,130 @@ const ROUTED_RPC = createProviderRouter({
   },
   primaryProvider: "alchemy",
   providers: {
-    alchemy: alchemyRpcRequest,
-    chainstack: chainstackRpcRequest,
+    alchemy: pacedAlchemyRpcRequest,
+    chainstack: pacedChainstackRpcRequest,
   },
   resolvePrimaryState: (provider) =>
     getLatestProviderHealthStatus(provider, BASE_CHAIN),
   secondaryProvider: "chainstack",
 });
+
+/**
+ * Detects RPC/provider-layer failures, as opposed to persistence failures
+ * (e.g. a database write error inside `matchEvent`). Only the former is
+ * worth retrying with backoff — retrying a storage failure would just waste
+ * up to a minute repeating a write that will keep failing for the same
+ * reason.
+ */
+export function isRetryableRpcError(error: unknown): boolean {
+  return (
+    error instanceof AlchemyRpcError ||
+    error instanceof ChainstackRpcError ||
+    error instanceof ProviderRouterError
+  );
+}
+
+/**
+ * Reads a `retryAfterMs` hint off a thrown error, including one wrapped
+ * inside a `ProviderRouterError`'s `primaryError`/`secondaryError`.
+ */
+export function extractRetryAfterMs(error: unknown): number | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const candidate = error as {
+    primaryError?: unknown;
+    retryAfterMs?: unknown;
+    secondaryError?: unknown;
+  };
+
+  if (typeof candidate.retryAfterMs === "number") {
+    return candidate.retryAfterMs;
+  }
+
+  return (
+    extractRetryAfterMs(candidate.secondaryError) ??
+    extractRetryAfterMs(candidate.primaryError)
+  );
+}
+
+/**
+ * Full jitter exponential backoff: doubles the base delay per attempt (capped
+ * at `RPC_RETRY_MAX_DELAY_MS`), then returns a random point between half of
+ * that value and the full value.
+ */
+export function computeBackoffWithJitter(attempt: number): number {
+  const exponential = Math.min(
+    RPC_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+    RPC_RETRY_MAX_DELAY_MS,
+  );
+  const floor = exponential / 2;
+
+  return Math.round(floor + Math.random() * floor);
+}
+
+/**
+ * Retries an RPC-triggering operation with exponential backoff and jitter,
+ * respecting a `Retry-After` hint when the provider sends one. Non-RPC
+ * failures (e.g. a database write error) are not retried and propagate on
+ * the first attempt.
+ *
+ * Parameters:
+ * - operation: The RPC-triggering call to attempt.
+ * - context: Logging label and an optional retryability predicate.
+ *
+ * Returns:
+ * - The operation's result once it succeeds.
+ *
+ * Throws:
+ * - The last error once `RPC_RETRY_MAX_ATTEMPTS` is exhausted, or
+ *   immediately for a non-retryable error.
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  context: { isRetryable?: (error: unknown) => boolean; label: string },
+): Promise<T> {
+  const isRetryable = context.isRetryable ?? (() => true);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= RPC_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (!isRetryable(error)) {
+        throw error;
+      }
+
+      const isLastAttempt = attempt >= RPC_RETRY_MAX_ATTEMPTS;
+
+      logReconcilerEvent({
+        error: error instanceof Error ? error.message : "Unknown RPC failure",
+        level: "warn",
+        message: `${context.label} failed on attempt ${attempt}/${RPC_RETRY_MAX_ATTEMPTS}${
+          isLastAttempt
+            ? "; giving up for this cycle"
+            : "; retrying with backoff"
+        }`,
+      });
+
+      if (isLastAttempt) {
+        break;
+      }
+
+      const retryAfterMs = extractRetryAfterMs(error);
+      await sleep(retryAfterMs ?? computeBackoffWithJitter(attempt));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(
+        `${context.label} failed after ${RPC_RETRY_MAX_ATTEMPTS} attempts.`,
+      );
+}
 
 /**
  * Creates a reusable reconciliation engine for scan and confirmation cycles.
@@ -181,27 +416,29 @@ const ROUTED_RPC = createProviderRouter({
 export function createReconciler(dependencies: ReconcilerDependencies) {
   return {
     /**
-     * Executes one recent reconciliation cycle across both configured
-     * providers.
+     * Executes one recent reconciliation cycle: catches up from the cursor
+     * (bounded to `RECENT_LOOKBACK_BLOCKS` on cold start) to the chain tip.
      */
     async runRecentScanCycle(): Promise<ReconciliationCycleSummary> {
       return runScanCycle({
         cursorType: "recent",
         dependencies,
         latestBlock: await dependencies.fetchLatestBlockNumber(),
-        windowSize: BigInt(RECENT_SCAN_WINDOW_BLOCKS),
+        lookbackBlocks: BigInt(RECENT_LOOKBACK_BLOCKS),
       });
     },
 
     /**
-     * Executes one deep reconciliation cycle across both configured providers.
+     * Executes one deep reconciliation cycle. Lookback is capped at
+     * `DEEP_LOOKBACK_BLOCKS` so a stale or missing cursor doesn't trigger an
+     * unbounded replay of the chain's history.
      */
     async runDeepScanCycle(): Promise<ReconciliationCycleSummary> {
       return runScanCycle({
         cursorType: "deep",
         dependencies,
         latestBlock: await dependencies.fetchLatestBlockNumber(),
-        windowSize: BigInt(DEEP_SCAN_WINDOW_BLOCKS),
+        lookbackBlocks: BigInt(DEEP_LOOKBACK_BLOCKS),
       });
     },
 
@@ -232,7 +469,9 @@ export function createReconciler(dependencies: ReconcilerDependencies) {
 
 /**
  * Starts the long-running Bun worker with recent, confirmation, and deep scan
- * intervals.
+ * intervals. Recent scans run every `RECONCILER_RECENT_INTERVAL_MS`
+ * (default 5 minutes); deep scans run every `RECONCILER_DEEP_INTERVAL_MS`
+ * (default once daily).
  */
 export async function startReconciliationWorker(): Promise<void> {
   const reconciler = createReconciler(createDefaultDependencies());
@@ -280,27 +519,72 @@ export async function startReconciliationWorker(): Promise<void> {
   process.once("SIGTERM", () => void shutdown());
 }
 
+/**
+ * Runs one scan cycle for the given cursor type: resolves the bounded block
+ * range since the last successful cursor position, then walks it in
+ * `SCAN_CHUNK_BLOCKS`-sized chunks so no single `eth_getLogs` call exceeds
+ * the configured provider's range limit. Cursor progress is persisted after
+ * every chunk (not just at the end of the cycle), so a chunk that fails
+ * partway through only loses that chunk's progress, not the whole cycle's.
+ */
 async function runScanCycle(input: {
   cursorType: CursorType;
   dependencies: ReconcilerDependencies;
   latestBlock: bigint;
-  windowSize: bigint;
+  lookbackBlocks: bigint;
 }): Promise<ReconciliationCycleSummary> {
-  const providers: ReconciliationCycleSummary["providers"] = [];
-  const providerOrder = await resolveReconciliationProviderOrder(
-    input.dependencies,
+  const lastScannedBlock = await input.dependencies.loadCursor(
+    CURSOR_PROGRESS_PROVIDER,
+    input.cursorType,
   );
+  const { fromBlock, toBlock } = resolveScanWindow({
+    latestBlock: input.latestBlock,
+    lastScannedBlock,
+    windowSize: input.lookbackBlocks,
+  });
+  const chunkSummaries: ReconciliationCycleSummary["providers"] = [];
 
-  for (const provider of providerOrder) {
-    providers.push(
-      await scanProviderWindow({
-        cursorType: input.cursorType,
-        dependencies: input.dependencies,
-        latestBlock: input.latestBlock,
-        provider,
-        windowSize: input.windowSize,
-      }),
+  if (fromBlock > toBlock) {
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "info",
+      message: "No new blocks to reconcile",
+    });
+
+    return {
+      cursorType: input.cursorType,
+      latestBlock: input.latestBlock,
+      providers: chunkSummaries,
+    };
+  }
+
+  const providerOrder = filterProvidersForCursorType(
+    await resolveReconciliationProviderOrder(input.dependencies),
+    input.cursorType,
+  );
+  let chunkStart = fromBlock;
+
+  while (chunkStart <= toBlock) {
+    const chunkEnd = minBigInt(
+      chunkStart + BigInt(SCAN_CHUNK_BLOCKS) - BigInt(1),
+      toBlock,
     );
+
+    const chunkSummary = await scanChunkWithFallback({
+      cursorType: input.cursorType,
+      dependencies: input.dependencies,
+      fromBlock: chunkStart,
+      providerOrder,
+      toBlock: chunkEnd,
+    });
+
+    chunkSummaries.push(chunkSummary);
+    await input.dependencies.saveCursorSuccess({
+      cursorType: input.cursorType,
+      lastScannedBlock: chunkEnd,
+      provider: CURSOR_PROGRESS_PROVIDER,
+    });
+    chunkStart = chunkEnd + BigInt(1);
   }
 
   input.dependencies.logEvent({
@@ -312,7 +596,7 @@ async function runScanCycle(input: {
   return {
     cursorType: input.cursorType,
     latestBlock: input.latestBlock,
-    providers,
+    providers: chunkSummaries,
   };
 }
 
@@ -351,39 +635,87 @@ export async function resolveReconciliationProviderOrder(
   return ["alchemy", "chainstack"];
 }
 
-async function scanProviderWindow(input: {
+/**
+ * Scans a single bounded chunk, trying each provider in `providerOrder`
+ * until one successfully returns logs — a provider whose `eth_getLogs` call
+ * itself fails (rate limit, plan limit, outage) is skipped in favor of the
+ * next one. Once logs are fetched, a failure while persisting them is a
+ * storage problem, not a data-source problem: it is not retried against
+ * another provider and propagates immediately, so the cursor does not
+ * advance past this chunk.
+ */
+async function scanChunkWithFallback(input: {
   cursorType: CursorType;
   dependencies: ReconcilerDependencies;
-  latestBlock: bigint;
-  provider: RpcProviderName;
-  windowSize: bigint;
+  fromBlock: bigint;
+  providerOrder: RpcProviderName[];
+  toBlock: bigint;
 }): Promise<ReconciliationCycleSummary["providers"][number]> {
-  const lastScannedBlock = await input.dependencies.loadCursor(
-    input.provider,
-    input.cursorType,
-  );
-  const { fromBlock, toBlock } = resolveScanWindow({
-    latestBlock: input.latestBlock,
-    lastScannedBlock,
-    windowSize: input.windowSize,
-  });
+  let events: NormalizedChainEvent[] | null = null;
+  let usedProvider: RpcProviderName | null = null;
+  let fetchError: unknown;
+
+  for (const provider of input.providerOrder) {
+    try {
+      events = await input.dependencies.fetchTransferLogs(
+        provider,
+        input.fromBlock,
+        input.toBlock,
+      );
+      usedProvider = provider;
+      break;
+    } catch (error) {
+      fetchError = error;
+      input.dependencies.logEvent({
+        cursorType: input.cursorType,
+        error: error instanceof Error ? error.message : "Unknown scan failure",
+        fromBlock: input.fromBlock.toString(),
+        level: "warn",
+        message: "Provider reconciliation scan failed, trying next provider",
+        provider,
+        toBlock: input.toBlock.toString(),
+      });
+    }
+  }
+
+  if (events === null || usedProvider === null) {
+    const failedProvider =
+      input.providerOrder[input.providerOrder.length - 1] ??
+      CURSOR_PROGRESS_PROVIDER;
+
+    await input.dependencies.markCursorError(
+      failedProvider,
+      input.cursorType,
+      input.fromBlock,
+    );
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      error:
+        fetchError instanceof Error
+          ? fetchError.message
+          : "All providers failed",
+      fromBlock: input.fromBlock.toString(),
+      level: "error",
+      message: "All providers failed for reconciliation chunk",
+      toBlock: input.toBlock.toString(),
+    });
+
+    throw fetchError instanceof Error
+      ? fetchError
+      : new Error("All providers failed for reconciliation chunk");
+  }
+
+  let recoveredEvents = 0;
+  let skippedProcessedEvents = 0;
 
   try {
-    const events = await input.dependencies.fetchTransferLogs(
-      input.provider,
-      fromBlock,
-      toBlock,
-    );
-    let recoveredEvents = 0;
-    let skippedProcessedEvents = 0;
-
     for (const event of events) {
       const reservedRawEvent = await input.dependencies.reserveRawEvent({
         cursorType: input.cursorType,
         event,
-        fromBlock,
-        provider: input.provider,
-        toBlock,
+        fromBlock: input.fromBlock,
+        provider: usedProvider,
+        toBlock: input.toBlock,
       });
 
       if (reservedRawEvent.processed_at) {
@@ -403,56 +735,49 @@ async function scanProviderWindow(input: {
         recoveredEvents += 1;
       }
     }
-
-    await input.dependencies.saveCursorSuccess({
-      cursorType: input.cursorType,
-      lastScannedBlock: toBlock,
-      provider: input.provider,
-    });
-
-    input.dependencies.logEvent({
-      cursorType: input.cursorType,
-      fromBlock: fromBlock.toString(),
-      level: "info",
-      message: "Completed provider reconciliation scan",
-      provider: input.provider,
-      recoveredEvents,
-      toBlock: toBlock.toString(),
-    });
-
-    return {
-      fromBlock,
-      provider: input.provider,
-      recoveredEvents,
-      scannedEvents: events.length,
-      skippedProcessedEvents,
-      toBlock,
-    };
   } catch (error) {
     await input.dependencies.markCursorError(
-      input.provider,
+      usedProvider,
       input.cursorType,
-      fromBlock,
+      input.fromBlock,
     );
-
     input.dependencies.logEvent({
       cursorType: input.cursorType,
       error: error instanceof Error ? error.message : "Unknown scan failure",
-      fromBlock: fromBlock.toString(),
+      fromBlock: input.fromBlock.toString(),
       level: "error",
-      message: "Provider reconciliation scan failed",
-      provider: input.provider,
-      toBlock: toBlock.toString(),
+      message: "Reconciliation chunk processing failed",
+      provider: usedProvider,
+      toBlock: input.toBlock.toString(),
     });
 
     throw error;
   }
+
+  input.dependencies.logEvent({
+    cursorType: input.cursorType,
+    fromBlock: input.fromBlock.toString(),
+    level: "info",
+    message: "Completed provider reconciliation scan",
+    provider: usedProvider,
+    recoveredEvents,
+    toBlock: input.toBlock.toString(),
+  });
+
+  return {
+    fromBlock: input.fromBlock,
+    provider: usedProvider,
+    recoveredEvents,
+    scannedEvents: events.length,
+    skippedProcessedEvents,
+    toBlock: input.toBlock,
+  };
 }
 
 /**
- * Resolves the block range for one provider/cursor scan. When the cursor is
- * stale, the scan falls back to the latest bounded window instead of attempting
- * an unbounded catch-up that would violate the architecture's scan sizes.
+ * Resolves the block range for one scan cycle. When the cursor is stale, the
+ * scan falls back to the latest bounded window instead of attempting an
+ * unbounded catch-up that would violate the architecture's scan sizes.
  */
 export function resolveScanWindow(input: {
   latestBlock: bigint;
@@ -477,27 +802,35 @@ export function resolveScanWindow(input: {
 
 function createDefaultDependencies(): ReconcilerDependencies {
   return {
-    fetchLatestBlockNumber: async () => {
-      const latestBlockHex = await ROUTED_RPC.callRpc<string>(
-        "eth_blockNumber",
-        [],
-        { preferSecondaryOnDegradedPrimary: true },
-      );
-      return BigInt(latestBlockHex);
-    },
-    fetchTransferLogs: async (provider, fromBlock, toBlock) => {
-      const request = getProviderRequest(provider);
-      const logs = await request<unknown[]>("eth_getLogs", [
-        {
-          address: BASE_USDC_CONTRACT,
-          fromBlock: toRpcHex(fromBlock),
-          toBlock: toRpcHex(toBlock),
-          topics: [ERC20_TRANSFER_TOPIC],
+    fetchLatestBlockNumber: async () =>
+      withRetry(
+        async () => {
+          const latestBlockHex = await ROUTED_RPC.callRpc<string>(
+            "eth_blockNumber",
+            [],
+            { preferSecondaryOnDegradedPrimary: true },
+          );
+          return BigInt(latestBlockHex);
         },
-      ]);
+        { label: "fetchLatestBlockNumber" },
+      ),
+    fetchTransferLogs: async (provider, fromBlock, toBlock) =>
+      withRetry(
+        async () => {
+          const request = getProviderRequest(provider);
+          const logs = await request<unknown[]>("eth_getLogs", [
+            {
+              address: BASE_USDC_CONTRACT,
+              fromBlock: toRpcHex(fromBlock),
+              toBlock: toRpcHex(toBlock),
+              topics: [ERC20_TRANSFER_TOPIC],
+            },
+          ]);
 
-      return normalizeRpcTransferLogs(logs, provider);
-    },
+          return normalizeRpcTransferLogs(logs, provider);
+        },
+        { label: `fetchTransferLogs(${provider})` },
+      ),
     loadCursor: async (provider, cursorType) => {
       const database = await connectToDatabase();
 
@@ -549,8 +882,20 @@ function createDefaultDependencies(): ReconcilerDependencies {
         await database.release();
       }
     },
-    matchEvent: matchNormalizedChainEvent,
-    recheckPayment: recheckDetectedPayment,
+    matchEvent: async (input) => {
+      await pacedRpcGate();
+      return withRetry(() => matchNormalizedChainEvent(input), {
+        isRetryable: isRetryableRpcError,
+        label: "matchEvent",
+      });
+    },
+    recheckPayment: async (input) => {
+      await pacedRpcGate();
+      return withRetry(() => recheckDetectedPayment(input), {
+        isRetryable: isRetryableRpcError,
+        label: "recheckPayment",
+      });
+    },
     reserveRawEvent: async ({
       cursorType,
       event,
@@ -577,7 +922,7 @@ function createDefaultDependencies(): ReconcilerDependencies {
               __outpayRecoverySource: "missed_webhook",
               __outpaySource: "reconciler",
               cursorType,
-              event,
+              event: serializeChainEvent(event),
               fromBlock: fromBlock.toString(),
               observedAt: new Date().toISOString(),
               toBlock: toBlock.toString(),
@@ -659,7 +1004,9 @@ function createDefaultDependencies(): ReconcilerDependencies {
 }
 
 function getProviderRequest(provider: RpcProviderName) {
-  return provider === "alchemy" ? alchemyRpcRequest : chainstackRpcRequest;
+  return provider === "alchemy"
+    ? pacedAlchemyRpcRequest
+    : pacedChainstackRpcRequest;
 }
 
 function buildReconciliationProviderEventId(
@@ -672,6 +1019,22 @@ function buildReconciliationProviderEventId(
     event.txHash.toLowerCase(),
     String(event.logIndex),
   ].join(":");
+}
+
+/**
+ * `NormalizedChainEvent` carries `amountUnits`/`blockNumber` as `bigint`,
+ * which `JSON.stringify` cannot serialize directly. This converts both to
+ * strings so the event can be embedded in the `provider_events_raw.payload`
+ * JSON column.
+ */
+function serializeChainEvent(
+  event: NormalizedChainEvent,
+): Record<string, unknown> {
+  return {
+    ...event,
+    amountUnits: event.amountUnits.toString(),
+    blockNumber: event.blockNumber.toString(),
+  };
 }
 
 function scheduleRecurringTask(
@@ -732,6 +1095,10 @@ function scheduleRecurringTask(
       }
     },
   };
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
 }
 
 function toRpcHex(value: bigint): string {

@@ -1476,13 +1476,41 @@ async function fetchLatestBlockNumber(): Promise<bigint> {
   return BigInt(latestBlockHex);
 }
 
+/**
+ * Block timestamps are immutable once mined, so a same-process lookup for a
+ * block already seen this run is served from cache instead of re-fetching.
+ * This matters most during reconciliation backlog catch-up, where many
+ * transfers routinely share the same block. Bounded to avoid unbounded
+ * growth in a long-lived worker process.
+ */
+const BLOCK_TIMESTAMP_CACHE_MAX_SIZE = 5000;
+const blockTimestampCache = new Map<string, Date>();
+
 async function fetchBlockTimestamp(blockNumber: bigint): Promise<Date> {
+  const cacheKey = blockNumber.toString();
+  const cached = blockTimestampCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
   const block = await callRpc<{ timestamp: string }>("eth_getBlockByNumber", [
     `0x${blockNumber.toString(16)}`,
     false,
   ]);
+  const timestamp = new Date(Number.parseInt(block.timestamp, 16) * 1000);
 
-  return new Date(Number.parseInt(block.timestamp, 16) * 1000);
+  if (blockTimestampCache.size >= BLOCK_TIMESTAMP_CACHE_MAX_SIZE) {
+    const oldestKey = blockTimestampCache.keys().next().value;
+
+    if (oldestKey !== undefined) {
+      blockTimestampCache.delete(oldestKey);
+    }
+  }
+
+  blockTimestampCache.set(cacheKey, timestamp);
+
+  return timestamp;
 }
 
 async function resolveStoredBlockTimestamp(

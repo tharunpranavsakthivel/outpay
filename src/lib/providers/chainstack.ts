@@ -4,6 +4,8 @@
  * call sites.
  */
 
+import { parseRetryAfterMs } from "./retry-after";
+
 const CHAINSTACK_BASE_RPC_URL = process.env.CHAINSTACK_BASE_RPC_URL?.trim();
 const CHAINSTACK_RPC_TIMEOUT_MS = Number.parseInt(
   process.env.RPC_TIMEOUT_MS?.trim() || "8000",
@@ -11,9 +13,7 @@ const CHAINSTACK_RPC_TIMEOUT_MS = Number.parseInt(
 );
 
 if (!CHAINSTACK_BASE_RPC_URL) {
-  throw new Error(
-    "Chainstack is not configured. Set CHAINSTACK_BASE_RPC_URL.",
-  );
+  throw new Error("Chainstack is not configured. Set CHAINSTACK_BASE_RPC_URL.");
 }
 
 if (!URL.canParse(CHAINSTACK_BASE_RPC_URL)) {
@@ -52,12 +52,24 @@ interface JsonRpcResponse<T> {
 export class ChainstackRpcError extends Error {
   code?: number;
   data?: unknown;
+  httpStatus?: number;
+  retryAfterMs?: number;
 
-  constructor(message: string, options?: { code?: number; data?: unknown }) {
+  constructor(
+    message: string,
+    options?: {
+      code?: number;
+      data?: unknown;
+      httpStatus?: number;
+      retryAfterMs?: number;
+    },
+  ) {
     super(message);
     this.name = "ChainstackRpcError";
     this.code = options?.code;
     this.data = options?.data;
+    this.httpStatus = options?.httpStatus;
+    this.retryAfterMs = options?.retryAfterMs;
   }
 }
 
@@ -96,6 +108,11 @@ export async function chainstackRpcRequest<T>(
   if (!response.ok) {
     throw new ChainstackRpcError(
       `Chainstack RPC request failed with HTTP ${response.status}.`,
+      {
+        httpStatus: response.status,
+        retryAfterMs:
+          parseRetryAfterMs(response.headers.get("retry-after")) ?? undefined,
+      },
     );
   }
 

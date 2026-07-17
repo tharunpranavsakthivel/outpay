@@ -81,19 +81,27 @@ export function normalizeRpcTransferLogs(
 function normalizeActivity(
   activity: Record<string, unknown>,
 ): NormalizedChainEvent | null {
+  // Alchemy's Address Activity webhook nests the log-level fields (logIndex,
+  // blockHash, blockNumber, transactionHash) under `activity.log`, not at the
+  // top level of the activity entry. Top-level fields are still checked first
+  // for forward/backward compatibility with other Alchemy payload shapes.
+  const log = asRecord(activity.log);
   const txHash =
-    readString(activity.hash) || readString(activity.transactionHash);
+    readString(activity.hash) ||
+    readString(activity.transactionHash) ||
+    readString(log?.transactionHash);
   const tokenContract =
     readString(asRecord(activity.rawContract)?.address) ||
     readString(activity.contractAddress);
   const fromAddress =
     readString(activity.fromAddress) || readString(activity.from);
   const toAddress = readString(activity.toAddress) || readString(activity.to);
-  const blockHash = readString(activity.blockHash) ?? undefined;
+  const blockHash =
+    readString(activity.blockHash) || readString(log?.blockHash) || undefined;
   const blockNumber = parseBigIntField(
-    activity.blockNum ?? activity.blockNumber,
+    activity.blockNum ?? activity.blockNumber ?? log?.blockNumber,
   );
-  const logIndex = parseIntegerField(activity.logIndex);
+  const logIndex = parseIntegerField(activity.logIndex ?? log?.logIndex);
   const amountUnits = parseAmountUnits(activity);
 
   if (
@@ -103,7 +111,11 @@ function normalizeActivity(
     !toAddress ||
     blockNumber === null ||
     logIndex === null ||
-    amountUnits === null
+    amountUnits === null ||
+    // A zero-value Transfer is valid on-chain (some contracts emit it as a
+    // no-op) but can never satisfy a checkout's positive expected amount,
+    // and `onchain_transactions.amount_token` has a `> 0` check constraint.
+    amountUnits <= BigInt(0)
   ) {
     return null;
   }
@@ -161,7 +173,11 @@ function normalizeRpcTransferLog(
     !toAddress ||
     blockNumber === null ||
     logIndex === null ||
-    amountUnits === null
+    amountUnits === null ||
+    // A zero-value Transfer is valid on-chain (some contracts emit it as a
+    // no-op) but can never satisfy a checkout's positive expected amount,
+    // and `onchain_transactions.amount_token` has a `> 0` check constraint.
+    amountUnits <= BigInt(0)
   ) {
     return null;
   }
