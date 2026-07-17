@@ -14,7 +14,7 @@ import {
   Queue,
   type Worker,
 } from "bullmq";
-import type { NormalizedChainEvent } from "@/lib/payments/normalize-event";
+import type { SerializedChainEvent } from "@/lib/payments/normalize-event";
 import {
   getWebhookRetryDelayMsAfterFailure,
   WEBHOOK_DELIVERY_MAX_ATTEMPTS,
@@ -46,7 +46,7 @@ export const MERCHANT_WEBHOOK_BACKOFF_STRATEGY_NAME = "merchant-webhook-retry";
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 export interface ChainEventJobPayload {
-  chainEvent: NormalizedChainEvent;
+  chainEvent: SerializedChainEvent;
   rawEventId: string;
 }
 
@@ -427,7 +427,7 @@ export function attachDeadLetterHandler<
  * Returns the stable chain-event job id defined in `ARCHITECTURE.md`.
  */
 export function buildChainEventJobId(
-  chainEvent: Pick<NormalizedChainEvent, "chain" | "logIndex" | "txHash">,
+  chainEvent: Pick<SerializedChainEvent, "chain" | "logIndex" | "txHash">,
 ): string {
   return `chain-event:${chainEvent.chain}:${chainEvent.txHash.toLowerCase()}:${chainEvent.logIndex}`;
 }

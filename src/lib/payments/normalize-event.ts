@@ -17,6 +17,47 @@ export type NormalizedChainEvent = {
   txHash: string;
 };
 
+/**
+ * JSON-safe transport shape for `NormalizedChainEvent`. `amountUnits` and
+ * `blockNumber` are `bigint`, which `JSON.stringify` cannot serialize —
+ * BullMQ stringifies job data internally, so any queue payload carrying a
+ * `NormalizedChainEvent` must cross that boundary through this shape instead
+ * of the bigint-bearing one.
+ */
+export type SerializedChainEvent = Omit<
+  NormalizedChainEvent,
+  "amountUnits" | "blockNumber"
+> & {
+  amountUnits: string;
+  blockNumber: string;
+};
+
+/**
+ * Converts a `NormalizedChainEvent` to its JSON-safe transport shape.
+ */
+export function serializeChainEventForTransport(
+  event: NormalizedChainEvent,
+): SerializedChainEvent {
+  return {
+    ...event,
+    amountUnits: event.amountUnits.toString(),
+    blockNumber: event.blockNumber.toString(),
+  };
+}
+
+/**
+ * Converts a `SerializedChainEvent` back into a `NormalizedChainEvent`.
+ */
+export function deserializeChainEventFromTransport(
+  event: SerializedChainEvent,
+): NormalizedChainEvent {
+  return {
+    ...event,
+    amountUnits: BigInt(event.amountUnits),
+    blockNumber: BigInt(event.blockNumber),
+  };
+}
+
 interface RpcTransferLogShape {
   address?: unknown;
   blockHash?: unknown;

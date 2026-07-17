@@ -8,7 +8,10 @@ import { jsonError } from "@/lib/dashboard/http";
 import { connectToDatabase } from "@/lib/database/client";
 import { logger, withRequestLogging } from "@/lib/logging/logger";
 import { emitMetric, METRIC_NAMES } from "@/lib/observability/metrics";
-import { normalizeAlchemyAddressActivityPayload } from "@/lib/payments/normalize-event";
+import {
+  normalizeAlchemyAddressActivityPayload,
+  serializeChainEventForTransport,
+} from "@/lib/payments/normalize-event";
 import {
   buildStoredAlchemyPayload,
   extractAlchemyProviderEventId,
@@ -215,7 +218,7 @@ async function enqueueNormalizedAlchemyEvents(input: {
 }): Promise<void> {
   for (const normalizedEvent of input.normalizedEvents) {
     await enqueueChainEventJob({
-      chainEvent: normalizedEvent,
+      chainEvent: serializeChainEventForTransport(normalizedEvent),
       rawEventId: input.rawEventId,
     });
   }

@@ -19,8 +19,12 @@ const {
   extractAlchemyProviderEventId,
   verifyWebhookSignature,
 } = await import("@/lib/providers/alchemy");
-const { normalizeAlchemyAddressActivityPayload, normalizeRpcTransferLogs } =
-  await import("@/lib/payments/normalize-event");
+const {
+  deserializeChainEventFromTransport,
+  normalizeAlchemyAddressActivityPayload,
+  normalizeRpcTransferLogs,
+  serializeChainEventForTransport,
+} = await import("@/lib/payments/normalize-event");
 
 const RAW_BODY = JSON.stringify({
   event: {
@@ -239,5 +243,43 @@ describe("Alchemy webhook helpers", () => {
     const events = normalizeRpcTransferLogs([zeroValueLog], "alchemy");
 
     expect(events).toEqual([]);
+  });
+
+  it("serializes a normalized chain event to a queue payload that JSON.stringify does not reject", () => {
+    // Regression test: a NormalizedChainEvent carries amountUnits/blockNumber
+    // as native bigint. BullMQ's Queue.add() calls JSON.stringify on job
+    // data internally, which throws "Do not know how to serialize a BigInt"
+    // — this crashed every real webhook-triggered enqueue attempt (the raw
+    // event was never empty by the time this code path is reached; only the
+    // logIndex bug above made it look otherwise in production).
+    const [event] = normalizeAlchemyAddressActivityPayload(
+      JSON.parse(RAW_BODY),
+    );
+    if (!event) {
+      throw new Error("expected RAW_BODY to normalize to one event");
+    }
+
+    const serialized = serializeChainEventForTransport(event);
+
+    expect(() =>
+      JSON.stringify({ chainEvent: serialized, rawEventId: "raw-1" }),
+    ).not.toThrow();
+    expect(serialized.amountUnits).toBe("1250000");
+    expect(serialized.blockNumber).toBe("12345678");
+  });
+
+  it("round-trips a serialized chain event back to its original bigint-bearing shape", () => {
+    const [event] = normalizeAlchemyAddressActivityPayload(
+      JSON.parse(RAW_BODY),
+    );
+    if (!event) {
+      throw new Error("expected RAW_BODY to normalize to one event");
+    }
+
+    const roundTripped = deserializeChainEventFromTransport(
+      JSON.parse(JSON.stringify(serializeChainEventForTransport(event))),
+    );
+
+    expect(roundTripped).toEqual(event);
   });
 });

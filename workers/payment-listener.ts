@@ -10,6 +10,7 @@ import {
   matchNormalizedChainEvent,
   recheckDetectedPayment,
 } from "@/lib/payments/match-payment";
+import { deserializeChainEventFromTransport } from "@/lib/payments/normalize-event";
 import {
   attachDeadLetterHandler,
   type ChainEventJobPayload,
@@ -35,7 +36,10 @@ const connection = getSharedRedisConnection() as unknown as ConnectionOptions;
 const chainEventWorker = new Worker<ChainEventJobPayload>(
   QUEUE_NAMES.chainEvents,
   async (job) => {
-    const result = await matchNormalizedChainEvent(job.data);
+    const result = await matchNormalizedChainEvent({
+      chainEvent: deserializeChainEventFromTransport(job.data.chainEvent),
+      rawEventId: job.data.rawEventId,
+    });
     await enqueueFollowUps(result);
     recordPaymentMetrics(result);
     logWorkerEvent("info", "Processed chain-event job", {
