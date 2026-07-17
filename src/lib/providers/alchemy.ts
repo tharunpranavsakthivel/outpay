@@ -3,18 +3,13 @@
  * and Address Activity webhook address registration.
  */
 
-import {
-  createHash,
-  createHmac,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isAddress } from "viem";
 
 const ALCHEMY_BASE_RPC_URL = process.env.ALCHEMY_BASE_RPC_URL?.trim();
 const ALCHEMY_WEBHOOK_SIGNING_KEY =
   process.env.ALCHEMY_WEBHOOK_SIGNING_KEY?.trim();
-const ALCHEMY_NOTIFY_WEBHOOK_ID =
-  process.env.ALCHEMY_NOTIFY_WEBHOOK_ID?.trim();
+const ALCHEMY_NOTIFY_WEBHOOK_ID = process.env.ALCHEMY_NOTIFY_WEBHOOK_ID?.trim();
 const ALCHEMY_NOTIFY_API_BASE_URL =
   process.env.ALCHEMY_NOTIFY_API_BASE_URL?.trim() ||
   "https://dashboard.alchemy.com/api";
@@ -23,14 +18,8 @@ const ALCHEMY_RPC_TIMEOUT_MS = Number.parseInt(
   10,
 );
 
-if (
-  !ALCHEMY_BASE_RPC_URL ||
-  !ALCHEMY_WEBHOOK_SIGNING_KEY ||
-  !ALCHEMY_NOTIFY_WEBHOOK_ID
-) {
-  throw new Error(
-    "Alchemy is not configured. Set ALCHEMY_BASE_RPC_URL, ALCHEMY_WEBHOOK_SIGNING_KEY, and ALCHEMY_NOTIFY_WEBHOOK_ID.",
-  );
+if (!ALCHEMY_BASE_RPC_URL) {
+  throw new Error("Alchemy RPC is not configured. Set ALCHEMY_BASE_RPC_URL.");
 }
 
 if (!URL.canParse(ALCHEMY_BASE_RPC_URL)) {
@@ -48,9 +37,7 @@ if (!Number.isInteger(ALCHEMY_RPC_TIMEOUT_MS) || ALCHEMY_RPC_TIMEOUT_MS <= 0) {
 const ALCHEMY_CONFIG = {
   baseRpcUrl: ALCHEMY_BASE_RPC_URL,
   notifyApiBaseUrl: `${ALCHEMY_NOTIFY_API_BASE_URL.replace(/\/+$/u, "")}/`,
-  notifyWebhookId: ALCHEMY_NOTIFY_WEBHOOK_ID,
   rpcTimeoutMs: ALCHEMY_RPC_TIMEOUT_MS,
-  webhookSigningKey: ALCHEMY_WEBHOOK_SIGNING_KEY,
 } as const;
 
 export interface AlchemyWebhookRegistrationResult {
@@ -108,7 +95,7 @@ export function verifyWebhookSignature(
     return false;
   }
 
-  const expectedDigest = createHmac("sha256", ALCHEMY_CONFIG.webhookSigningKey)
+  const expectedDigest = createHmac("sha256", getAlchemyWebhookSigningKey())
     .update(rawBody, "utf8")
     .digest("hex");
   const expectedBuffer = Buffer.from(expectedDigest, "hex");
@@ -194,7 +181,10 @@ export async function alchemyRpcRequest<T>(
 export async function addAlchemyWebhookAddresses(
   addresses: readonly string[],
 ): Promise<AlchemyWebhookRegistrationResult> {
-  const normalizedAddresses = [...new Set(addresses.map(normalizeAddressInput))];
+  const normalizedAddresses = [
+    ...new Set(addresses.map(normalizeAddressInput)),
+  ];
+  const notifyWebhookId = getAlchemyNotifyWebhookId();
 
   if (!normalizedAddresses.length) {
     throw new Error("At least one wallet address is required.");
@@ -205,7 +195,7 @@ export async function addAlchemyWebhookAddresses(
     {
       body: JSON.stringify({
         addresses_to_add: normalizedAddresses,
-        webhook_id: ALCHEMY_CONFIG.notifyWebhookId,
+        webhook_id: notifyWebhookId,
       }),
       headers: {
         authorization: `Bearer ${extractAlchemyApiKey()}`,
@@ -227,7 +217,7 @@ export async function addAlchemyWebhookAddresses(
   return {
     addressCount: normalizedAddresses.length,
     ok: true,
-    webhookId: ALCHEMY_CONFIG.notifyWebhookId,
+    webhookId: notifyWebhookId,
   };
 }
 
@@ -369,6 +359,48 @@ function extractAlchemyApiKey(): string {
 }
 
 /**
+ * Returns the signing secret needed only by the public webhook receiver.
+ *
+ * Keeping this validation at the call site allows private workers to use the
+ * Base RPC client without receiving a credential that cannot be used there.
+ *
+ * Returns:
+ * - The configured non-empty Alchemy webhook signing key.
+ *
+ * Throws:
+ * - `Error` when the receiving web service has no signing key configured.
+ */
+function getAlchemyWebhookSigningKey(): string {
+  if (!ALCHEMY_WEBHOOK_SIGNING_KEY) {
+    throw new Error(
+      "Alchemy webhook verification is not configured. Set ALCHEMY_WEBHOOK_SIGNING_KEY on the web service.",
+    );
+  }
+
+  return ALCHEMY_WEBHOOK_SIGNING_KEY;
+}
+
+/**
+ * Returns the webhook identifier needed only when changing Alchemy's address
+ * watchlist from the web service.
+ *
+ * Returns:
+ * - The configured non-empty Alchemy Notify webhook ID.
+ *
+ * Throws:
+ * - `Error` when webhook address registration has no target webhook.
+ */
+function getAlchemyNotifyWebhookId(): string {
+  if (!ALCHEMY_NOTIFY_WEBHOOK_ID) {
+    throw new Error(
+      "Alchemy webhook registration is not configured. Set ALCHEMY_NOTIFY_WEBHOOK_ID on the web service.",
+    );
+  }
+
+  return ALCHEMY_NOTIFY_WEBHOOK_ID;
+}
+
+/**
  * Parses the webhook signature header into a lowercase hex digest.
  *
  * Parameters:
@@ -377,14 +409,19 @@ function extractAlchemyApiKey(): string {
  * Returns:
  * - Lowercase hex digest, or `null` when the header is absent/malformed.
  */
-function normalizeAlchemySignature(signatureHeader: string | null): string | null {
+function normalizeAlchemySignature(
+  signatureHeader: string | null,
+): string | null {
   const trimmed = signatureHeader?.trim();
 
   if (!trimmed) {
     return null;
   }
 
-  const withoutPrefix = trimmed.replace(/^sha256=/i, "").trim().toLowerCase();
+  const withoutPrefix = trimmed
+    .replace(/^sha256=/i, "")
+    .trim()
+    .toLowerCase();
 
   if (!/^[0-9a-f]{64}$/.test(withoutPrefix)) {
     return null;

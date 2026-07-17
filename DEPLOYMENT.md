@@ -92,7 +92,17 @@ web process directly or configure a broad `trustedProxies` range.
 Required:
 
 - `DATABASE_URL`, `REDIS_URL`, `OUTPAY_DATABASE_POOL_MAX`
+- `ALCHEMY_BASE_RPC_URL`, `CHAINSTACK_BASE_RPC_URL`
+- `RPC_PRIMARY_PROVIDER`, `RPC_SECONDARY_PROVIDER`, `RPC_TIMEOUT_MS`,
+  `RPC_FAILOVER_ENABLED`
 - `OUTPAY_USDC_SLIGHT_OVERPAY_TOLERANCE`
+
+The payment worker reads the latest Base block and a transfer's block timestamp
+before it can calculate confirmations or apply a status transition. It must
+therefore receive the same RPC configuration as the reconciler. It does not
+need `ALCHEMY_WEBHOOK_SIGNING_KEY` or `ALCHEMY_NOTIFY_WEBHOOK_ID`; those
+credentials remain scoped to the public web service, which receives webhooks
+and manages the payout-address watchlist.
 
 Optional tuning:
 
@@ -107,6 +117,9 @@ Required:
 - `ALCHEMY_BASE_RPC_URL`, `CHAINSTACK_BASE_RPC_URL`
 - `RPC_PRIMARY_PROVIDER`, `RPC_SECONDARY_PROVIDER`, `RPC_TIMEOUT_MS`,
   `RPC_FAILOVER_ENABLED`
+
+The reconciler needs only Base RPC access. It does not require the Alchemy
+webhook signing key or Notify webhook ID.
 
 Optional scan tuning uses the `RECONCILER_*` variables in `.env.example`:
 `RECONCILER_RECENT_WINDOW_BLOCKS`, `RECONCILER_DEEP_WINDOW_BLOCKS`,
