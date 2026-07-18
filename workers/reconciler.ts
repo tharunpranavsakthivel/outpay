@@ -80,17 +80,28 @@ export interface ConfirmationCycleSummary {
   checkoutSessionIds: string[];
 }
 
+export type DatabaseSizeTier = "cleanup" | "ok" | "pause" | "warn";
+
+export interface DatabaseSizeStatus {
+  ratio: number;
+  sizeBytes: bigint;
+  tier: DatabaseSizeTier;
+}
+
 export interface ReconcilerDependencies {
   fetchLatestBlockNumber: () => Promise<bigint>;
   fetchTransferLogs: (
     provider: RpcProviderName,
     fromBlock: bigint,
     toBlock: bigint,
+    watchedAddresses: string[],
   ) => Promise<NormalizedChainEvent[]>;
+  getDatabaseSizeStatus: () => Promise<DatabaseSizeStatus>;
   loadCursor: (
     provider: RpcProviderName,
     cursorType: CursorType,
   ) => Promise<bigint | null>;
+  loadWatchedPaymentAddresses: () => Promise<string[]>;
   logEvent: (event: ReconcilerLoggerEvent) => void;
   markCursorError: (
     provider: RpcProviderName,
@@ -112,6 +123,7 @@ export interface ReconcilerDependencies {
     provider: RpcProviderName;
     toBlock: bigint;
   }) => Promise<ProviderEventRawRow>;
+  runRetentionCleanup: () => Promise<{ deletedCount: number }>;
   saveCursorSuccess: (input: {
     cursorType: CursorType;
     lastScannedBlock: bigint;
@@ -196,6 +208,79 @@ const CONFIRMATION_SCAN_BATCH_SIZE = readPositiveIntegerEnv(
   process.env.RECONCILER_CONFIRMATION_BATCH_SIZE?.trim(),
   50,
 );
+
+/**
+ * A checkout's payment intent still needs its recipient address watched for
+ * a grace period after it expires: a transfer can land on-chain moments
+ * after the deadline, and without this window it would never be scanned for
+ * at all (the address drops out of the watch set the instant it expires).
+ */
+const WATCHED_ADDRESS_EXPIRED_LOOKBACK_HOURS = readPositiveIntegerEnv(
+  process.env.RECONCILER_WATCHED_ADDRESS_EXPIRED_LOOKBACK_HOURS?.trim(),
+  24,
+);
+
+/**
+ * `provider_events_raw` rows are only useful for replay/debugging once
+ * `matchEvent` has processed them (`processed_at` set). Past this retention
+ * window they are pure disk cost, so they are deleted on a schedule instead
+ * of accumulating forever — the root cause of the 2026-07-17 disk-full
+ * outage was exactly this table growing unbounded.
+ */
+const RAW_EVENT_RETENTION_DAYS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RAW_EVENT_RETENTION_DAYS?.trim(),
+  7,
+);
+const RETENTION_CLEANUP_INTERVAL_MS = readPositiveIntegerEnv(
+  process.env.RECONCILER_RETENTION_INTERVAL_MS?.trim(),
+  6 * 60 * 60_000,
+);
+
+/** Caps how many rows a single retention cleanup pass deletes, so a large
+ * backlog is cleared over several scheduled runs instead of one huge DELETE
+ * that could itself strain a nearly-full disk (the same failure mode that
+ * caused the outage this design fixes). */
+const RETENTION_CLEANUP_BATCH_SIZE = readPositiveIntegerEnv(
+  process.env.RECONCILER_RETENTION_BATCH_SIZE?.trim(),
+  5000,
+);
+
+/**
+ * The Postgres volume backing this app is fixed at 500MB (Railway's
+ * smallest plan). These tiers exist so ingestion self-regulates against
+ * that hard limit instead of relying solely on the filtered scan design to
+ * keep growth bounded: warn logs a signal at 70% for visibility, cleanup
+ * proactively runs retention deletion at 80% instead of waiting for the
+ * scheduled interval, and pause skips new ingestion at 90% so the database
+ * never again reaches the zero-free-space crash-recovery failure mode seen
+ * in the 2026-07-17 outage. The confirmation recheck cycle is exempt from
+ * the pause tier because it only updates existing rows in place — it does
+ * not grow the database — and already-detected payments must keep
+ * progressing toward settlement even while ingestion is paused.
+ */
+const DATABASE_SIZE_LIMIT_MB = readPositiveIntegerEnv(
+  process.env.RECONCILER_DATABASE_SIZE_LIMIT_MB?.trim(),
+  500,
+);
+const DB_SIZE_WARN_RATIO = 0.7;
+const DB_SIZE_CLEANUP_RATIO = 0.8;
+const DB_SIZE_PAUSE_RATIO = 0.9;
+
+export function classifyDatabaseSizeTier(ratio: number): DatabaseSizeTier {
+  if (ratio >= DB_SIZE_PAUSE_RATIO) {
+    return "pause";
+  }
+
+  if (ratio >= DB_SIZE_CLEANUP_RATIO) {
+    return "cleanup";
+  }
+
+  if (ratio >= DB_SIZE_WARN_RATIO) {
+    return "warn";
+  }
+
+  return "ok";
+}
 
 /**
  * Alchemy's Free-tier plan enforces a short-term throughput cap (~500
@@ -474,7 +559,8 @@ export function createReconciler(dependencies: ReconcilerDependencies) {
  * (default once daily).
  */
 export async function startReconciliationWorker(): Promise<void> {
-  const reconciler = createReconciler(createDefaultDependencies());
+  const dependencies = createDefaultDependencies();
+  const reconciler = createReconciler(dependencies);
   const scheduledTasks = [
     scheduleRecurringTask(
       "recent reconciliation scan",
@@ -490,6 +576,17 @@ export async function startReconciliationWorker(): Promise<void> {
       "deep reconciliation scan",
       DEEP_SCAN_INTERVAL_MS,
       () => reconciler.runDeepScanCycle(),
+    ),
+    scheduleRecurringTask(
+      "provider_events_raw retention cleanup",
+      RETENTION_CLEANUP_INTERVAL_MS,
+      async () => {
+        const { deletedCount } = await dependencies.runRetentionCleanup();
+        logReconcilerEvent({
+          level: "info",
+          message: `Retention cleanup deleted ${deletedCount} processed provider_events_raw rows`,
+        });
+      },
     ),
   ];
 
@@ -533,6 +630,43 @@ async function runScanCycle(input: {
   latestBlock: bigint;
   lookbackBlocks: bigint;
 }): Promise<ReconciliationCycleSummary> {
+  const sizeStatus = await input.dependencies.getDatabaseSizeStatus();
+
+  if (sizeStatus.tier === "pause") {
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "warn",
+      message: `Database size at ${(sizeStatus.ratio * 100).toFixed(1)}% of ${DATABASE_SIZE_LIMIT_MB}MB limit; pausing nonessential ingestion for this cycle`,
+    });
+
+    return {
+      cursorType: input.cursorType,
+      latestBlock: input.latestBlock,
+      providers: [],
+    };
+  }
+
+  if (sizeStatus.tier === "cleanup") {
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "warn",
+      message: `Database size at ${(sizeStatus.ratio * 100).toFixed(1)}% of ${DATABASE_SIZE_LIMIT_MB}MB limit; running retention cleanup before scanning`,
+    });
+
+    const { deletedCount } = await input.dependencies.runRetentionCleanup();
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "info",
+      message: `Retention cleanup deleted ${deletedCount} processed provider_events_raw rows`,
+    });
+  } else if (sizeStatus.tier === "warn") {
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "warn",
+      message: `Database size at ${(sizeStatus.ratio * 100).toFixed(1)}% of ${DATABASE_SIZE_LIMIT_MB}MB limit`,
+    });
+  }
+
   const lastScannedBlock = await input.dependencies.loadCursor(
     CURSOR_PROGRESS_PROVIDER,
     input.cursorType,
@@ -549,6 +683,30 @@ async function runScanCycle(input: {
       cursorType: input.cursorType,
       level: "info",
       message: "No new blocks to reconcile",
+    });
+
+    return {
+      cursorType: input.cursorType,
+      latestBlock: input.latestBlock,
+      providers: chunkSummaries,
+    };
+  }
+
+  const watchedAddresses =
+    await input.dependencies.loadWatchedPaymentAddresses();
+
+  if (watchedAddresses.length === 0) {
+    input.dependencies.logEvent({
+      cursorType: input.cursorType,
+      level: "info",
+      message:
+        "No active or recently expired payment addresses to watch; advancing cursor without scanning",
+    });
+
+    await input.dependencies.saveCursorSuccess({
+      cursorType: input.cursorType,
+      lastScannedBlock: toBlock,
+      provider: CURSOR_PROGRESS_PROVIDER,
     });
 
     return {
@@ -576,6 +734,7 @@ async function runScanCycle(input: {
       fromBlock: chunkStart,
       providerOrder,
       toBlock: chunkEnd,
+      watchedAddresses,
     });
 
     chunkSummaries.push(chunkSummary);
@@ -650,6 +809,7 @@ async function scanChunkWithFallback(input: {
   fromBlock: bigint;
   providerOrder: RpcProviderName[];
   toBlock: bigint;
+  watchedAddresses: string[];
 }): Promise<ReconciliationCycleSummary["providers"][number]> {
   let events: NormalizedChainEvent[] | null = null;
   let usedProvider: RpcProviderName | null = null;
@@ -661,6 +821,7 @@ async function scanChunkWithFallback(input: {
         provider,
         input.fromBlock,
         input.toBlock,
+        input.watchedAddresses,
       );
       usedProvider = provider;
       break;
@@ -707,9 +868,28 @@ async function scanChunkWithFallback(input: {
 
   let recoveredEvents = 0;
   let skippedProcessedEvents = 0;
+  const watchedAddressSet = new Set(
+    input.watchedAddresses.map((address) => address.toLowerCase()),
+  );
 
   try {
     for (const event of events) {
+      // Defense in depth: `fetchTransferLogs` already filters server-side
+      // (topics) and client-side, but nothing gets persisted here without
+      // this check passing too — a provider ignoring the topics filter, or
+      // a future dependency implementation skipping its own filter, must
+      // never be able to reintroduce the unbounded-growth bug this design
+      // fixes.
+      if (!watchedAddressSet.has(event.toAddress.toLowerCase())) {
+        input.dependencies.logEvent({
+          cursorType: input.cursorType,
+          level: "warn",
+          message: `Discarded transfer to non-watched address ${event.toAddress} (tx ${event.txHash})`,
+          provider: usedProvider,
+        });
+        continue;
+      }
+
       const reservedRawEvent = await input.dependencies.reserveRawEvent({
         cursorType: input.cursorType,
         event,
@@ -814,8 +994,20 @@ function createDefaultDependencies(): ReconcilerDependencies {
         },
         { label: "fetchLatestBlockNumber" },
       ),
-    fetchTransferLogs: async (provider, fromBlock, toBlock) =>
-      withRetry(
+    fetchTransferLogs: async (
+      provider,
+      fromBlock,
+      toBlock,
+      watchedAddresses,
+    ) => {
+      // Nothing to scan for — skip the RPC call entirely rather than
+      // issuing an eth_getLogs request whose result would be discarded in
+      // full anyway.
+      if (watchedAddresses.length === 0) {
+        return [];
+      }
+
+      return withRetry(
         async () => {
           const request = getProviderRequest(provider);
           const logs = await request<unknown[]>("eth_getLogs", [
@@ -823,14 +1015,53 @@ function createDefaultDependencies(): ReconcilerDependencies {
               address: BASE_USDC_CONTRACT,
               fromBlock: toRpcHex(fromBlock),
               toBlock: toRpcHex(toBlock),
-              topics: [ERC20_TRANSFER_TOPIC],
+              // topics[2] is the indexed `to` address of the ERC-20
+              // Transfer event; passing an array here filters server-side
+              // (OR semantics) so only transfers to a currently-watched
+              // Outpay payment address are ever returned, instead of every
+              // USDC transfer on Base.
+              topics: [
+                ERC20_TRANSFER_TOPIC,
+                null,
+                watchedAddresses.map(addressToTopic),
+              ],
             },
           ]);
 
-          return normalizeRpcTransferLogs(logs, provider);
+          const events = normalizeRpcTransferLogs(logs, provider);
+          const watchedSet = new Set(
+            watchedAddresses.map((address) => address.toLowerCase()),
+          );
+
+          // Client-side filter as a second layer in case a provider
+          // doesn't honor the topics filter faithfully.
+          return events.filter((event) =>
+            watchedSet.has(event.toAddress.toLowerCase()),
+          );
         },
         { label: `fetchTransferLogs(${provider})` },
-      ),
+      );
+    },
+    getDatabaseSizeStatus: async () => {
+      const database = await connectToDatabase();
+
+      try {
+        const rows = await database.sql<{ size_bytes: string }[]>`
+          select pg_database_size(current_database())::text as size_bytes
+        `;
+        const sizeBytes = BigInt(rows[0]?.size_bytes ?? "0");
+        const limitBytes = BigInt(DATABASE_SIZE_LIMIT_MB) * BigInt(1024 * 1024);
+        const ratio = Number(sizeBytes) / Number(limitBytes);
+
+        return {
+          ratio,
+          sizeBytes,
+          tier: classifyDatabaseSizeTier(ratio),
+        };
+      } finally {
+        await database.release();
+      }
+    },
     loadCursor: async (provider, cursorType) => {
       const database = await connectToDatabase();
 
@@ -845,6 +1076,34 @@ function createDefaultDependencies(): ReconcilerDependencies {
         `;
 
         return rows[0] ? BigInt(rows[0].last_scanned_block) : null;
+      } finally {
+        await database.release();
+      }
+    },
+    loadWatchedPaymentAddresses: async () => {
+      const database = await connectToDatabase();
+
+      try {
+        // Only addresses tied to a payment that could still legitimately
+        // detect a new on-chain transfer: awaiting payment, already
+        // detected (rescanning can pick up a second/late confirmation
+        // event), or expired within the grace window. Everything else
+        // (confirmed, mismatched, or expired past the grace window) will
+        // never match a new transfer, so its address is dropped from the
+        // watch set — this is the filter that keeps eth_getLogs scoped to
+        // Outpay-relevant transfers instead of all USDC activity on Base.
+        const rows = await database.sql<{ address_normalized: string }[]>`
+          select distinct wa.address_normalized
+          from payment_intents pi
+          join wallet_addresses wa on wa.id = pi.recipient_wallet_id
+          where pi.match_status in ('awaiting_payment', 'detected')
+             or (
+               pi.match_status = 'expired'
+               and pi.expires_at > now() - (${WATCHED_ADDRESS_EXPIRED_LOOKBACK_HOURS} * interval '1 hour')
+             )
+        `;
+
+        return rows.map((row) => row.address_normalized);
       } finally {
         await database.release();
       }
@@ -945,6 +1204,33 @@ function createDefaultDependencies(): ReconcilerDependencies {
         }
 
         return rows[0] as ProviderEventRawRow;
+      } finally {
+        await database.release();
+      }
+    },
+    runRetentionCleanup: async () => {
+      const database = await connectToDatabase();
+
+      try {
+        // Capped batch delete (rather than one unbounded DELETE) so a large
+        // backlog can't itself strain a nearly-full disk while clearing
+        // space — the same failure mode that caused the 2026-07-17 outage.
+        // Supported by idx_provider_events_raw_processed_at (migration
+        // 0015).
+        const rows = await database.sql<{ id: string }[]>`
+          delete from provider_events_raw
+          where id in (
+            select id
+            from provider_events_raw
+            where processed_at is not null
+              and processed_at < now() - (${RAW_EVENT_RETENTION_DAYS} * interval '1 day')
+            order by processed_at asc
+            limit ${RETENTION_CLEANUP_BATCH_SIZE}
+          )
+          returning id
+        `;
+
+        return { deletedCount: rows.length };
       } finally {
         await database.release();
       }
@@ -1103,6 +1389,14 @@ function minBigInt(a: bigint, b: bigint): bigint {
 
 function toRpcHex(value: bigint): string {
   return `0x${value.toString(16)}`;
+}
+
+/**
+ * Left-pads a 20-byte EVM address into the 32-byte topic form required to
+ * filter `eth_getLogs` on an indexed event parameter.
+ */
+export function addressToTopic(address: string): string {
+  return `0x${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
 }
 
 function logReconcilerEvent(event: ReconcilerLoggerEvent): void {

@@ -1,0 +1,2 @@
+drop index if exists idx_provider_events_raw_processed_at;
+drop index if exists idx_payment_intents_recipient_wallet_id;

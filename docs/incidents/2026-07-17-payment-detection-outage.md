@@ -8,7 +8,11 @@ description: Postmortem for the outage where no on-chain USDC payment could ever
 ## Status
 
 Resolved. All fixes are deployed to production. **Not yet committed to git**
-as of this writing — see [Outstanding work](#outstanding-work).
+as of this writing — see [Outstanding work](#outstanding-work). See also the
+[2026-07-18 update](#2026-07-18-update-disk-full-crisis-and-ingestion-redesign)
+for a second, related incident: the reconciler fix above left the
+`eth_getLogs` scan unfiltered by recipient, which filled the 500MB Postgres
+volume within ~20 hours and ultimately crashed the database.
 
 ## Summary
 
@@ -274,3 +278,214 @@ rows) were explicitly preserved and confirmed unchanged before and after.
 - `DEPLOYMENT.md`'s worker-service topology table is now accurate in
   practice (the services exist and are configured as documented) but was
   not re-audited line-by-line as part of this incident.
+
+## 2026-07-18 update: disk-full crisis and ingestion redesign
+
+### Root cause
+
+The reconciler fix deployed on 2026-07-17 restored `eth_getLogs` scanning,
+but the query filtered only by contract address and event topic (`Transfer`
+on the Base USDC contract) — not by recipient. Every USDC transfer on Base,
+from any address to any address, was normalized and inserted into
+`onchain_transactions` and `provider_events_raw`. Over roughly 20 hours this
+accumulated 118,481 `onchain_transactions` rows and 118,503
+`provider_events_raw` rows (~260MB of a 271MB total database size), against
+Railway's fixed 500MB Postgres volume for this project. Zero of these rows
+were relevant to any watched merchant address or referenced by any real
+payment record.
+
+A same-day attempt to delete the irrelevant rows made things worse: the
+first attempt (a single `DELETE` with `UNION` subqueries) failed because
+Postgres had no free disk left even to write its own temp files. A second,
+batched attempt (2,000 rows per batch via `ctid IN (SELECT ctid ... LIMIT
+2000)`) coincided with an actual Postgres **crash** — the deployment status
+went to `CRASHED`, and Postgres logs showed a repeating crash-recovery loop
+where WAL redo itself failed with `FATAL: could not write to file
+"pg_wal/xlogtemp.50": No space left on device`. At zero free disk, even
+crash recovery cannot complete. Railway's CLI has no volume-resize command
+(`railway volume update --help` only supports `--mount-path`/`--name`), so
+the only path back to a working database was the Railway dashboard.
+
+The user resized the issue via the dashboard's **Wipe Volume** action, which
+deletes all data on the volume, including backups. This is more than a data
+cleanup — it removed the entire schema, not just the noisy reconciler rows.
+Every table, every merchant, every user, and the specific missed payment
+this whole incident started from were gone. The schema was rebuilt from
+scratch (see below); the original missed payment could not be re-detected
+because the checkout and payment-intent rows that referenced it no longer
+exist anywhere.
+
+### Files changed
+
+- `workers/reconciler.ts`:
+  - `loadWatchedPaymentAddresses()` — new dependency; queries
+    `payment_intents` joined to `wallet_addresses` for addresses tied to
+    `awaiting_payment`/`detected` intents, plus `expired` intents within a
+    24-hour grace window (`RECONCILER_WATCHED_ADDRESS_EXPIRED_LOOKBACK_HOURS`).
+    Called once per scan cycle, not per chunk.
+  - `fetchTransferLogs` — signature now takes the watched-address list.
+    Builds an `eth_getLogs` `topics[2]` filter (the indexed ERC-20 `to`
+    address) so the provider only returns transfers to a currently-watched
+    address, then re-filters client-side after normalizing. Skips the RPC
+    call entirely when the watched set is empty.
+  - `scanChunkWithFallback` — added a second, independent discard filter
+    immediately before any DB insert, so a provider ignoring the topics
+    filter (or a future dependency implementation with a bug) can never
+    reintroduce unbounded ingestion. Non-watched events are logged and
+    dropped, never inserted.
+  - `getDatabaseSizeStatus()` / `classifyDatabaseSizeTier()` — new; reads
+    `pg_database_size(current_database())` against a configurable limit
+    (`RECONCILER_DATABASE_SIZE_LIMIT_MB`, default 500) and classifies it
+    into `ok` / `warn` (≥70%) / `cleanup` (≥80%) / `pause` (≥90%). Checked
+    once at the top of every `recent`/`deep` scan cycle. `pause` skips
+    ingestion for that cycle only — the confirmation-recheck cycle is
+    exempt, since it only updates existing rows and must keep already-
+    detected payments progressing toward settlement.
+  - `runRetentionCleanup()` — new; batched (capped at 5,000 rows/call)
+    delete of `provider_events_raw` rows where `processed_at` is older than
+    `RECONCILER_RAW_EVENT_RETENTION_DAYS` (default 7). Runs on a schedule
+    (default every 6h) and immediately when the size tier is `cleanup`.
+  - `addressToTopic()` — new; left-pads a 20-byte address into the 32-byte
+    topic form `eth_getLogs` requires for indexed-parameter filtering.
+- `db/migrations/0015_reconciler_ingestion_indexes.{up,down}.sql` — new;
+  indexes `payment_intents(recipient_wallet_id)` (supports the new watched-
+  address join; was an unindexed foreign key) and a partial index on
+  `provider_events_raw(processed_at) where processed_at is not null`
+  (supports retention cleanup).
+- `test/chainstack-reconciliation.test.ts` — added three new `describe`
+  blocks (`watched-address filtering`, `database size safeguards`,
+  `address topic encoding`), 17 new tests total; all existing tests updated
+  for the two new required dependency fields.
+
+One requirement was **not** implemented literally: "use `ON CONFLICT DO
+NOTHING`" for idempotency. `onchain_transactions` and `provider_events_raw`
+already had unique-constraint-backed idempotency
+(`uq_onchain_transactions_hash_log` on `chain_id, tx_hash_normalized,
+coalesce(log_index, -1)`; `provider_events_raw` unique on `(provider,
+provider_event_id)`) before this fix — pre-existing, not part of the bug.
+Both inserts intentionally use `ON CONFLICT ... DO UPDATE`, not `DO
+NOTHING`: `onchain_transactions.confirmations` must advance on a rescan of
+the same event, and `provider_events_raw`'s `RETURNING processed_at` is how
+the reconciler knows whether an event was already handled. Switching either
+to `DO NOTHING` would silently stop confirmations from updating and break
+that already-processed check. The uniqueness constraint — not the conflict
+action — is what provides idempotency here.
+
+### SQL executed
+
+Destructive attempts made while the disk was still full (both failed; kept
+here for the record):
+
+```sql
+-- Attempt 1: failed — Postgres had no disk space left to write its own
+-- temp files for the UNION subqueries.
+delete from onchain_transactions
+where to_address_normalized not in (select address_normalized from wallet_addresses)
+  and id not in (
+    select onchain_transaction_id from payments where onchain_transaction_id is not null
+    union
+    select onchain_transaction_id from payment_match_failures where onchain_transaction_id is not null
+    union
+    select detected_tx_id from payment_intents where detected_tx_id is not null
+  );
+
+-- Attempt 2: coincided with the Postgres crash (batched, 2000 rows/call, looped).
+delete from provider_events_raw
+where ctid in (select ctid from provider_events_raw where provider_event_id like 'reconcile:%' limit 2000);
+```
+
+After the volume wipe and schema rebuild, cleanup of noise generated by the
+*old* (pre-fix) reconciler code during the ~7-minute window between the
+schema rebuild and the fixed code's deploy (it treated the empty
+`chain_cursors` table as a cold start and ran one more unfiltered scan):
+
+```sql
+delete from provider_events_raw
+where provider_event_id like 'reconcile:%'
+  and received_at < '2026-07-18T09:54:50Z'
+returning id;
+-- 1458 rows deleted
+
+delete from provider_events_raw
+where provider_event_id like 'reconcile:%'
+returning id;
+-- 158 rows deleted (in-flight requests from the outgoing container during
+-- the rolling-deploy drain window)
+```
+
+`provider_events_raw` is at 0 rows as of this writing.
+
+### Migration details
+
+Applied via `bun run db:migrate` against the freshly wiped (schema-less)
+database:
+
+| Migration | Purpose |
+| --- | --- |
+| `0000`–`0014` | Full pre-existing schema, re-applied from scratch (the wipe removed every table, not just reconciler data). |
+| `0015_reconciler_ingestion_indexes` | New. `idx_payment_intents_recipient_wallet_id` (supports the watched-address join) and `idx_provider_events_raw_processed_at` (partial, supports retention cleanup). |
+
+All 16 migrations applied cleanly; `bun run db:status` confirms all as
+`applied`.
+
+### Verification results
+
+- **Schema:** all 41 expected tables present after rebuild; `pg_indexes`
+  confirms both migration-0015 indexes exist.
+- **Deploy:** `outpay-reconciler` redeployed via `railway up`; deployment
+  status `SUCCESS`.
+- **Live behavior:** post-deploy logs show `loadWatchedPaymentAddresses`
+  correctly returning an empty set (no payment intents exist yet in the
+  rebuilt database) and both `recent`/`deep` cycles logging "No active or
+  recently expired payment addresses to watch; advancing cursor without
+  scanning" — zero `eth_getLogs` calls, cursor still advances. Confirmation
+  cycles run on schedule and find nothing to recheck, as expected.
+- **Database size:** 13MB (down from 271MB pre-wipe), 2.6% of the 500MB
+  limit.
+- **Tests:** full suite — 42 files, 186 passed, 1 skipped, 0 failed
+  (`bun run test`). `tsc --noEmit` and `biome check` clean on every changed
+  file.
+- **Other services** (`outpay`, `outpay-payment-worker`,
+  `outpay-webhook-worker`): no code changes in this fix. `GET
+  /api/health` returns `200 {"status":"ok","dependencies":{"database":{"status":"up"}}}`
+  against a directly-verified live connection (not a stale/cached result).
+  Their logs show clean startup with no errors since before the volume
+  wipe. `railway restart` was attempted for all three as a precaution but
+  hung indefinitely in this non-interactive CLI session (no confirmed root
+  cause — possibly a prompt-on-stdin issue); the attempt was abandoned
+  since none of them needed a restart for correctness reasons.
+- **The originally missed payment cannot be re-verified as detected.** The
+  volume wipe deleted the checkout and payment-intent rows that referenced
+  it, along with all other data. There is nothing left to rewind a cursor
+  toward or confirm settlement for. This is a direct, unavoidable
+  consequence of the Wipe Volume action, not a gap in the fix.
+
+### Remaining risks
+
+- **Nothing from either incident is committed to git.** Both the
+  2026-07-17 fixes and this update were deployed straight from the working
+  tree via `railway up`. A future git-triggered deploy would revert all of
+  it, including migration 0015's SQL files (which exist on disk but were
+  never pushed). This is the single highest-priority follow-up.
+- **All production data is gone.** Every merchant, user, checkout, and
+  payment record was deleted by the volume wipe. This needs to be
+  communicated clearly if there are any real merchants who had live
+  checkouts or account data before this — they will need to re-onboard.
+- **The `pause` tier (90%) has not been exercised against a real near-full
+  database.** It's covered by unit tests against the injected dependency
+  interface, but the actual `pg_database_size()` query and its interaction
+  with a genuinely constrained disk have not been observed live, since the
+  database is now nearly empty. The same is true of the `cleanup` tier
+  (80%) and the scheduled retention task's real-world batch size against a
+  large backlog.
+- **`eth_getLogs` topics-array filtering has a provider-dependent size
+  limit** that was not verified against Alchemy's or Chainstack's actual
+  caps. With very few active checkouts at a time this is not a near-term
+  concern, but if the watched-address set grows large, the array-based
+  `topics[2]` filter could itself start failing or silently truncating —
+  worth monitoring as merchant volume grows.
+- **The 24-hour expired-address lookback window
+  (`RECONCILER_WATCHED_ADDRESS_EXPIRED_LOOKBACK_HOURS`) is a judgment call**,
+  not a value derived from data. If late/delayed on-chain settlement
+  regularly happens more than 24 hours after a checkout's expiry, those
+  transfers will never be scanned for.
