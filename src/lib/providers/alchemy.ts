@@ -11,6 +11,7 @@ const ALCHEMY_BASE_RPC_URL = process.env.ALCHEMY_BASE_RPC_URL?.trim();
 const ALCHEMY_WEBHOOK_SIGNING_KEY =
   process.env.ALCHEMY_WEBHOOK_SIGNING_KEY?.trim();
 const ALCHEMY_NOTIFY_WEBHOOK_ID = process.env.ALCHEMY_NOTIFY_WEBHOOK_ID?.trim();
+const ALCHEMY_AUTH_TOKEN = process.env.ALCHEMY_AUTH_TOKEN?.trim();
 const ALCHEMY_NOTIFY_API_BASE_URL =
   process.env.ALCHEMY_NOTIFY_API_BASE_URL?.trim() ||
   "https://dashboard.alchemy.com/api";
@@ -212,13 +213,21 @@ export async function addAlchemyWebhookAddresses(
     new URL("update-webhook-addresses", ALCHEMY_CONFIG.notifyApiBaseUrl),
     {
       body: JSON.stringify({
+        // Alchemy's API rejects the request with "Missing required fields"
+        // (400) unless addresses_to_remove is present, even when there is
+        // nothing to remove.
         addresses_to_add: normalizedAddresses,
+        addresses_to_remove: [],
         webhook_id: notifyWebhookId,
       }),
       headers: {
-        authorization: `Bearer ${extractAlchemyApiKey()}`,
         "content-type": "application/json",
-        "x-alchemy-token": extractAlchemyApiKey(),
+        // The Notify (webhook management) API is authenticated with the
+        // team-level Alchemy Access Key, not an individual app's RPC API
+        // key. Reusing the RPC key here (extracted from
+        // ALCHEMY_BASE_RPC_URL) previously caused every registration
+        // attempt to fail with HTTP 401.
+        "x-alchemy-token": getAlchemyAuthToken(),
       },
       method: "PATCH",
       signal: AbortSignal.timeout(ALCHEMY_CONFIG.rpcTimeoutMs),
@@ -356,27 +365,6 @@ function normalizeAddressInput(address: string): string {
 }
 
 /**
- * Extracts the Alchemy API key from the configured RPC URL so the same project
- * credential can be reused for webhook management calls.
- *
- * Returns:
- * - Non-empty API key suffix parsed from `/v2/<apiKey>`.
- */
-function extractAlchemyApiKey(): string {
-  const pathname = new URL(ALCHEMY_CONFIG.baseRpcUrl).pathname;
-  const segments = pathname.split("/").filter(Boolean);
-  const lastSegment = segments.at(-1)?.trim();
-
-  if (!lastSegment) {
-    throw new Error(
-      "Unable to extract the Alchemy API key from ALCHEMY_BASE_RPC_URL.",
-    );
-  }
-
-  return lastSegment;
-}
-
-/**
  * Returns the signing secret needed only by the public webhook receiver.
  *
  * Keeping this validation at the call site allows private workers to use the
@@ -416,6 +404,27 @@ function getAlchemyNotifyWebhookId(): string {
   }
 
   return ALCHEMY_NOTIFY_WEBHOOK_ID;
+}
+
+/**
+ * Returns the team-level Alchemy Access Key needed only when changing
+ * Alchemy's address watchlist from the web service. This is distinct from
+ * the per-app RPC API key embedded in `ALCHEMY_BASE_RPC_URL`.
+ *
+ * Returns:
+ * - The configured non-empty Alchemy Access Key.
+ *
+ * Throws:
+ * - `Error` when webhook address registration has no management credential.
+ */
+function getAlchemyAuthToken(): string {
+  if (!ALCHEMY_AUTH_TOKEN) {
+    throw new Error(
+      "Alchemy webhook management is not configured. Set ALCHEMY_AUTH_TOKEN on the web service.",
+    );
+  }
+
+  return ALCHEMY_AUTH_TOKEN;
 }
 
 /**
