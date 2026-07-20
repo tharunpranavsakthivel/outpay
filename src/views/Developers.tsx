@@ -32,16 +32,19 @@ const DOC_LINKS = [
   {
     description:
       "Create checkouts, inspect status, and use resource-based routes.",
+    href: "https://docs.outpay.tech/docs/api-reference/overview",
     title: "API reference",
   },
   {
     description:
       "Verify HMAC signatures using the rotated signing secret shown after save.",
+    href: "https://docs.outpay.tech/docs/webhooks/verification",
     title: "Webhook signature verification",
   },
   {
     description:
       "The checkout flow is currently locked to USDC on Base in the schema.",
+    href: "https://docs.outpay.tech/docs/api-reference/schemas",
     title: "Base network & USDC",
   },
 ];
@@ -683,13 +686,27 @@ export default function Developers({
               {DOC_LINKS.map((doc) => (
                 <Card key={doc.title}>
                   <CardContent className="flex flex-col gap-3 border-b-0 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-sm font-medium">{doc.title}</div>
-                      <div className="text-xs text-foreground-lighter mt-0.5">
-                        {doc.description}
+                    <a
+                      aria-label={`Open ${doc.title} documentation in a new tab`}
+                      className="-m-4 flex flex-1 flex-col gap-3 rounded-lg p-4 no-underline hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-foreground sm:flex-row sm:items-center sm:justify-between"
+                      href={doc.href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-foreground">
+                          {doc.title}
+                        </div>
+                        <div className="mt-0.5 text-xs text-foreground-lighter">
+                          {doc.description}
+                        </div>
                       </div>
-                    </div>
-                    <ExternalLink size={15} className="opacity-50" />
+                      <ExternalLink
+                        aria-hidden="true"
+                        size={15}
+                        className="shrink-0 opacity-50"
+                      />
+                    </a>
                   </CardContent>
                 </Card>
               ))}

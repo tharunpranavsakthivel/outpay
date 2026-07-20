@@ -3,9 +3,18 @@
  * child page can render and never relies on merchant membership roles.
  */
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { withAdminContext } from "@/lib/admin/route";
 import { requireAdmin } from "@/lib/admin/server";
+import { createPageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = createPageMetadata({
+  title: "Admin Dashboard | Outpay",
+  description: "Internal Outpay operational dashboard.",
+  path: "/admin",
+  noIndex: true,
+});
 
 const ADMIN_LINKS = [
   ["Payments", "/admin/payments"],

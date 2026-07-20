@@ -15,7 +15,6 @@ import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
-import { Button } from "../components/ui/Button";
 import {
   calculateProjectedUsageFee,
   STANDARD_FREE_TRANSACTION_ALLOWANCE,
@@ -162,9 +161,12 @@ export default function Pricing() {
               merchants can contact us for custom terms.
             </p>
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center">
-              <Button variant="primary" size="medium">
+              <Link
+                href="/signup"
+                className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+              >
                 Start free
-              </Button>
+              </Link>
               <Link
                 href="/company/contact"
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-transparent border border-border-strong text-foreground hover:bg-accent no-underline"
@@ -373,9 +375,9 @@ export default function Pricing() {
                 {example.volume}
               </div>
               <div className="border-t border-border mt-6 pt-5">
-                <div className="text-[15px] font-semibold text-foreground mb-2">
+                <h3 className="text-[15px] font-semibold text-foreground mb-2">
                   {example.fee}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {example.desc}
                 </div>
@@ -418,9 +420,9 @@ export default function Pricing() {
             <div className="w-10 h-10 rounded-[10px] bg-accent flex items-center justify-center mb-5">
               <point.Icon size={19} />
             </div>
-            <div className="text-[15px] font-semibold text-foreground mb-2">
+            <h3 className="text-[15px] font-semibold text-foreground mb-2">
               {point.title}
-            </div>
+            </h3>
             <div className="text-sm text-foreground-light leading-[1.55]">
               {point.desc}
             </div>
@@ -486,9 +488,9 @@ export default function Pricing() {
               key={faq.q}
               className="p-6 border-b border-border last:border-b-0"
             >
-              <div className="text-[15px] font-semibold text-foreground mb-2">
+              <h3 className="text-[15px] font-semibold text-foreground mb-2">
                 {faq.q}
-              </div>
+              </h3>
               <div className="text-sm text-foreground-light leading-[1.6]">
                 {faq.a}
               </div>
@@ -507,9 +509,12 @@ export default function Pricing() {
           </h2>
         </div>
         <div className="op-reveal flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button variant="primary" size="medium">
+          <Link
+            href="/signup"
+            className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+          >
             Start free
-          </Button>
+          </Link>
           <Link
             href="/company/contact"
             className="no-underline text-sm font-medium text-foreground inline-flex items-center gap-1.5"

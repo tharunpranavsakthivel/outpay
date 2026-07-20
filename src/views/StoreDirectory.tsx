@@ -82,9 +82,9 @@ export default function StoreDirectory({
         <section className="mx-auto max-w-content px-4 py-12 sm:px-6 lg:py-16">
           <div className="mb-6 flex items-center justify-between gap-4">
             <div>
-              <div className="heading-meta text-foreground-lighter">
+              <h2 className="heading-meta text-foreground-lighter">
                 Featured stores
-              </div>
+              </h2>
               <p className="mt-2 text-sm text-foreground-light">
                 {visibleStores.length}{" "}
                 {visibleStores.length === 1 ? "store" : "stores"} found

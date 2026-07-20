@@ -410,9 +410,9 @@ export default function Home({ authenticatedUser }: HomeProps) {
                 <div className="text-[28px] font-semibold leading-none text-foreground mb-4">
                   {card.metric}
                 </div>
-                <div className="text-[15px] font-semibold text-foreground mb-2">
+                <h3 className="text-[15px] font-semibold text-foreground mb-2">
                   {card.title}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {card.desc}
                 </div>
@@ -446,9 +446,9 @@ export default function Home({ authenticatedUser }: HomeProps) {
                 <pillar.Icon size={19} />
               </div>
               <div>
-                <div className="text-[15px] font-semibold text-foreground mb-2">
+                <h3 className="text-[15px] font-semibold text-foreground mb-2">
                   {pillar.title}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {pillar.desc}
                 </div>
@@ -537,9 +537,9 @@ export default function Home({ authenticatedUser }: HomeProps) {
               <div className="w-10 h-10 rounded-[10px] bg-accent flex items-center justify-center mb-5">
                 <point.Icon size={19} />
               </div>
-              <div className="text-[15px] font-semibold text-foreground mb-2">
+              <h3 className="text-[15px] font-semibold text-foreground mb-2">
                 {point.title}
-              </div>
+              </h3>
               <div className="text-sm text-foreground-light leading-[1.55]">
                 {point.desc}
               </div>
@@ -619,9 +619,9 @@ export default function Home({ authenticatedUser }: HomeProps) {
                 key={card.title}
                 className="op-reveal border border-border rounded-xl bg-background p-6"
               >
-                <div className="text-[15px] font-semibold text-foreground mb-2">
+                <h3 className="text-[15px] font-semibold text-foreground mb-2">
                   {card.title}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {card.desc}
                 </div>

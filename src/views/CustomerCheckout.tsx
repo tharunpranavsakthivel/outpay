@@ -261,7 +261,7 @@ export default function CustomerCheckout({
             <img
               src={qrCodeUrl}
               className="w-[168px] h-[168px] border border-border rounded-lg"
-              alt="Payment QR code"
+              alt={`Payment QR code for ${checkout.amountLabel} on ${checkout.chainName}`}
             />
             <div className="w-full">
               <div className="text-[11px] text-foreground-lighter mb-1.5 text-center">

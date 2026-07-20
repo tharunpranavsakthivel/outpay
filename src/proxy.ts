@@ -10,10 +10,11 @@ const PROTECTED_ROUTE_PREFIXES = [
   "/dashboard",
   "/checkouts",
   "/payments",
-  "/developers",
   "/settings",
   "/onboarding",
 ];
+
+const PROTECTED_ROUTE_EXACT = ["/developers"];
 
 /**
  * Determines whether a request targets a merchant-app route that should only
@@ -23,8 +24,11 @@ const PROTECTED_ROUTE_PREFIXES = [
  * @returns True when the route is part of the authenticated app surface.
  */
 function isProtectedRoute(pathname: string) {
-  return PROTECTED_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  return (
+    PROTECTED_ROUTE_EXACT.includes(pathname) ||
+    PROTECTED_ROUTE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
   );
 }
 

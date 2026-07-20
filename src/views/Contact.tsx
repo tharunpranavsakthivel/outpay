@@ -115,15 +115,18 @@ export default function Contact() {
             step.
           </p>
           <div className="grid grid-cols-1 gap-3 pt-2">
+            <h2 className="text-lg font-semibold text-foreground m-0">
+              How can we help?
+            </h2>
             {CONTACT_REASONS.map((reason) => (
               <div key={reason.title} className="flex gap-3">
                 <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center shrink-0">
                   <reason.Icon size={16} />
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-foreground">
+                  <h3 className="text-sm font-semibold text-foreground">
                     {reason.title}
-                  </div>
+                  </h3>
                   <div className="text-xs text-foreground-light leading-[1.5] mt-0.5">
                     {reason.desc}
                   </div>

@@ -11,9 +11,9 @@ import {
   Rocket,
   Webhook,
 } from "lucide-react";
+import Link from "next/link";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
-import { Button } from "../components/ui/Button";
 
 type DetailPageConfig = {
   eyebrow: string;
@@ -570,15 +570,18 @@ export default function MarketingDetailPage({
               {config.description}
             </p>
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center">
-              <Button variant="primary" size="medium">
+              <Link
+                href="/signup"
+                className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+              >
                 {config.primaryCta}
-              </Button>
-              <a
+              </Link>
+              <Link
                 href={config.secondaryHref}
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-transparent border border-border-strong text-foreground hover:bg-accent no-underline"
               >
                 {config.secondaryCta}
-              </a>
+              </Link>
             </div>
           </div>
           <div className="op-hero-in-delay">
@@ -696,9 +699,9 @@ export default function MarketingDetailPage({
                       <Check size={15} />
                     </div>
                     <div>
-                      <div className="text-[15px] font-semibold text-foreground mb-1.5">
+                      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
                         {section.title}
-                      </div>
+                      </h3>
                       <div className="text-sm text-foreground-light leading-[1.55]">
                         {section.description}
                       </div>
@@ -719,9 +722,9 @@ export default function MarketingDetailPage({
                 <div className="heading-meta text-foreground-lighter">
                   0{index + 1}
                 </div>
-                <div className="text-[15px] font-semibold text-foreground">
+                <h3 className="text-[15px] font-semibold text-foreground">
                   {section.title}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {section.description}
                 </div>
@@ -762,12 +765,12 @@ export default function MarketingDetailPage({
           Start with hosted checkout links, then add the API and webhooks when
           you want a deeper store integration.
         </p>
-        <a
+        <Link
           href="/pricing"
           className="no-underline text-sm font-medium text-foreground inline-flex items-center gap-1.5"
         >
           Review pricing <ArrowRight size={14} />
-        </a>
+        </Link>
       </div>
 
       <MarketingFooter />

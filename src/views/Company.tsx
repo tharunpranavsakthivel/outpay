@@ -7,9 +7,9 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
+import Link from "next/link";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
-import { Button } from "../components/ui/Button";
 
 const PRINCIPLES = [
   {
@@ -63,15 +63,18 @@ export default function Company() {
               wallet-to-wallet.
             </p>
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center">
-              <Button variant="primary" size="medium">
+              <Link
+                href="/signup"
+                className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+              >
                 Start building
-              </Button>
-              <a
+              </Link>
+              <Link
                 href="/company/contact"
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-transparent border border-border-strong text-foreground hover:bg-accent no-underline"
               >
                 Contact sales
-              </a>
+              </Link>
             </div>
           </div>
           <div className="op-hero-in-delay border border-border rounded-xl bg-card shadow-xs p-6 grid grid-cols-1 gap-4">
@@ -111,9 +114,9 @@ export default function Company() {
                 <principle.Icon size={20} />
               </div>
               <div>
-                <div className="text-[15px] font-semibold text-foreground mb-2">
+                <h3 className="text-[15px] font-semibold text-foreground mb-2">
                   {principle.title}
-                </div>
+                </h3>
                 <div className="text-sm text-foreground-light leading-[1.55]">
                   {principle.desc}
                 </div>

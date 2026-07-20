@@ -11,9 +11,9 @@ import {
   Wallet,
   Webhook,
 } from "lucide-react";
+import Link from "next/link";
 import { MarketingFooter } from "../components/layout/MarketingFooter";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
-import { Button } from "../components/ui/Button";
 import { StatusPill } from "../components/ui/StatusPill";
 import {
   Table,
@@ -130,9 +130,9 @@ export default function Product() {
               <div className="heading-meta text-foreground-lighter">
                 Step {i + 1}
               </div>
-              <div className="text-[15px] font-semibold text-foreground">
+              <h3 className="text-[15px] font-semibold text-foreground">
                 {step.title}
-              </div>
+              </h3>
               <div className="text-sm text-foreground-light leading-[1.55] max-w-[480px]">
                 {step.desc}
               </div>
@@ -302,9 +302,12 @@ X-Outpay-Signature: t=..., v1=...
         <p className="text-sm text-foreground-light m-0">
           Set up your first checkout link in minutes.
         </p>
-        <Button variant="primary" size="medium">
+        <Link
+          href="/signup"
+          className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
+        >
           Start accepting USDC
-        </Button>
+        </Link>
       </div>
 
       <MarketingFooter />

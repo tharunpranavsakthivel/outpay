@@ -78,9 +78,9 @@ export default function StoreProfile({ store }: { store: PublicStore }) {
               </p>
             </div>
             <aside className="h-fit rounded-xl border border-border bg-card p-5">
-              <div className="heading-meta text-foreground-lighter">
+              <h2 className="heading-meta text-foreground-lighter">
                 Store details
-              </div>
+              </h2>
               <div className="mt-5 flex flex-col gap-4">
                 {store.websiteUrl && (
                   <a

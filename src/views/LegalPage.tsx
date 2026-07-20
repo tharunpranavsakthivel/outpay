@@ -100,9 +100,9 @@ export default function LegalPage({
             key={heading}
             className="flex flex-col gap-2.5 pt-7 border-t border-border mt-1"
           >
-            <div className="text-base font-semibold text-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               {heading}
-            </div>
+            </h2>
             <div className="text-[13.5px] text-foreground-light leading-[1.7]">
               {SECTION_CONTENT[docType][heading]}
             </div>

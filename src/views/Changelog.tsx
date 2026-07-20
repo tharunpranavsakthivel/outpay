@@ -54,9 +54,9 @@ export default function Changelog() {
               {entry.date}
             </div>
             <div className="flex flex-col gap-1.5">
-              <div className="text-[15px] font-semibold text-foreground">
+              <h2 className="text-[15px] font-semibold text-foreground">
                 {entry.title}
-              </div>
+              </h2>
               <div className="text-[13.5px] text-foreground-light leading-[1.6]">
                 {entry.desc}
               </div>

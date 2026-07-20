@@ -56,25 +56,25 @@ const DEV_ITEMS = [
     Icon: BookOpen,
     title: "API Reference",
     desc: "Endpoints for checkout sessions, orders, and stores.",
-    href: "/developers/api-reference",
+    href: "https://docs.outpay.tech/docs/api-reference/overview",
   },
   {
     Icon: Webhook,
     title: "Webhooks Guide",
     desc: "Verify signatures and handle payment events safely.",
-    href: "/developers/webhooks",
+    href: "https://docs.outpay.tech/docs/webhooks",
   },
   {
     Icon: Rocket,
     title: "Quickstart",
     desc: "Accept your first USDC payment in minutes.",
-    href: "/developers/quickstart",
+    href: "https://docs.outpay.tech/docs/getting-started/quickstart",
   },
   {
     Icon: History,
     title: "Changelog",
     desc: "See what shipped recently on Outpay.",
-    href: "/changelog",
+    href: "https://docs.outpay.tech/docs/changelog",
   },
 ];
 
@@ -239,13 +239,13 @@ function DevelopersMegaMenu() {
   -d currency=USDC`}</pre>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Link
-              href="/developers/quickstart"
+              href="https://docs.outpay.tech/docs/getting-started/quickstart"
               className="rounded-lg border border-border bg-background px-4 py-3 no-underline text-sm font-medium text-foreground hover:bg-accent"
             >
               Quickstart
             </Link>
             <Link
-              href="/developers/api-reference"
+              href="https://docs.outpay.tech/docs/api-reference/overview"
               className="rounded-lg border border-border bg-background px-4 py-3 no-underline text-sm font-medium text-foreground hover:bg-accent"
             >
               API reference
