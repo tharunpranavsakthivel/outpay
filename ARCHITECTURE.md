@@ -1000,13 +1000,17 @@ Use Redis-backed queues with BullMQ or similar.
 
 ### Job Idempotency
 
-Use stable job IDs.
+Use stable job IDs, joined with `|`, not `:`. BullMQ rejects any custom job
+ID containing `:` unless it splits into exactly 3 parts (compatibility check
+for its own repeatable-job ID format) — every colon-joined, multi-field ID
+below used to violate that silently until it was actually exercised in
+production.
 
 ```txt
-chain-event:base:<tx_hash>:<log_index>
-payment-match:<checkout_id>
-webhook-delivery:<delivery_id>:<attempt>
-reconcile:base:<from_block>:<to_block>
+chain-event|base|<tx_hash>|<log_index>
+payment-match|<checkout_id>
+webhook-delivery|<delivery_id>|<attempt>
+reconcile|base|<from_block>|<to_block>
 ```
 
 ---

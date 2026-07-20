@@ -425,25 +425,33 @@ export function attachDeadLetterHandler<
 
 /**
  * Returns the stable chain-event job id defined in `ARCHITECTURE.md`.
+ *
+ * Uses `|` rather than `:` to join fields: BullMQ rejects any custom job id
+ * containing `:` unless it splits into exactly 3 parts (a legacy
+ * compatibility check for its own repeatable-job id format), which every
+ * multi-field, colon-joined id here violated. This was live and enqueuing
+ * real jobs for the first time only once the Alchemy webhook registration
+ * bug (see `src/lib/providers/alchemy.ts`) was fixed — every webhook
+ * delivery before that point never got this far.
  */
 export function buildChainEventJobId(
   chainEvent: Pick<SerializedChainEvent, "chain" | "logIndex" | "txHash">,
 ): string {
-  return `chain-event:${chainEvent.chain}:${chainEvent.txHash.toLowerCase()}:${chainEvent.logIndex}`;
+  return `chain-event|${chainEvent.chain}|${chainEvent.txHash.toLowerCase()}|${chainEvent.logIndex}`;
 }
 
 /**
  * Returns the stable payment-match job id defined in `ARCHITECTURE.md`.
  */
 export function buildPaymentMatchJobId(checkoutSessionId: string): string {
-  return `payment-match:${checkoutSessionId}`;
+  return `payment-match|${checkoutSessionId}`;
 }
 
 /**
  * Returns the stable confirmation recheck job id for one checkout.
  */
 export function buildConfirmationJobId(checkoutSessionId: string): string {
-  return `confirmation:${checkoutSessionId}`;
+  return `confirmation|${checkoutSessionId}`;
 }
 
 /**
@@ -454,7 +462,7 @@ export function buildMerchantWebhookJobId(
   webhookEventId: string,
   attemptNumber: number,
 ): string {
-  return `webhook-delivery:${webhookEventId}:${attemptNumber}`;
+  return `webhook-delivery|${webhookEventId}|${attemptNumber}`;
 }
 
 /**
@@ -463,14 +471,14 @@ export function buildMerchantWebhookJobId(
 export function buildReconciliationJobId(
   payload: Pick<ReconciliationJobPayload, "chain" | "fromBlock" | "toBlock">,
 ): string {
-  return `reconcile:${payload.chain}:${String(payload.fromBlock)}:${String(payload.toBlock)}`;
+  return `reconcile|${payload.chain}|${String(payload.fromBlock)}|${String(payload.toBlock)}`;
 }
 
 /**
  * Returns a deterministic dedupe id for alert fan-out.
  */
 export function buildAlertJobId(payload: AlertJobPayload): string {
-  return `alert:${payload.source}:${payload.severity}:${payload.dedupeKey}`;
+  return `alert|${payload.source}|${payload.severity}|${payload.dedupeKey}`;
 }
 
 /**
@@ -482,7 +490,7 @@ export function buildDeadLetterJobId(input: {
   originalJobId: string;
   originalQueue: QueueName;
 }): string {
-  return `dead-letter:${input.originalQueue}:${input.originalJobId}:${input.attemptsMade}`;
+  return `dead-letter|${input.originalQueue}|${input.originalJobId}|${input.attemptsMade}`;
 }
 
 /**

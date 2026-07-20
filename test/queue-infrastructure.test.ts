@@ -8,7 +8,10 @@ import { createConnection } from "node:net";
 import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import {
+  buildAlertJobId,
   buildChainEventJobId,
+  buildConfirmationJobId,
+  buildDeadLetterJobId,
   buildMerchantWebhookJobId,
   buildPaymentMatchJobId,
   buildReconciliationJobId,
@@ -41,10 +44,10 @@ describe("queue infrastructure", () => {
         logIndex: 7,
         txHash: "0xABCDEF",
       }),
-    ).toBe("chain-event:base:0xabcdef:7");
-    expect(buildPaymentMatchJobId("chk_123")).toBe("payment-match:chk_123");
+    ).toBe("chain-event|base|0xabcdef|7");
+    expect(buildPaymentMatchJobId("chk_123")).toBe("payment-match|chk_123");
     expect(buildMerchantWebhookJobId("whd_456", 3)).toBe(
-      "webhook-delivery:whd_456:3",
+      "webhook-delivery|whd_456|3",
     );
     expect(
       buildReconciliationJobId({
@@ -52,7 +55,41 @@ describe("queue infrastructure", () => {
         fromBlock: 12345000n,
         toBlock: 12345100n,
       }),
-    ).toBe("reconcile:base:12345000:12345100");
+    ).toBe("reconcile|base|12345000|12345100");
+  });
+
+  it("never produces a job id BullMQ would reject (colons must split into exactly 3 parts)", () => {
+    const ids = [
+      buildChainEventJobId({ chain: "base", logIndex: 7, txHash: "0xabc" }),
+      buildPaymentMatchJobId("chk_123"),
+      buildConfirmationJobId("chk_123"),
+      buildMerchantWebhookJobId("whd_456", 3),
+      buildReconciliationJobId({
+        chain: "base",
+        fromBlock: BigInt(1),
+        toBlock: BigInt(2),
+      }),
+      buildAlertJobId({
+        dedupeKey: "database-connection-error",
+        message: "Database connection failed",
+        severity: "critical",
+        source: "database",
+      }),
+      buildDeadLetterJobId({
+        attemptsMade: 3,
+        originalJobId: buildChainEventJobId({
+          chain: "base",
+          logIndex: 7,
+          txHash: "0xabc",
+        }),
+        originalQueue: "chain-events",
+      }),
+    ];
+
+    for (const id of ids) {
+      const isValid = !id.includes(":") || id.split(":").length === 3;
+      expect(isValid).toBe(true);
+    }
   });
 
   it("uses the architecture's seven-step merchant webhook backoff schedule", () => {
