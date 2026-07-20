@@ -127,6 +127,32 @@
   }
 }
 
+@keyframes op-success-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes op-success-ring {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
 .op-hero-in {
   animation: op-rise-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -158,6 +184,18 @@
 
 .op-flow-line {
   animation: op-flow-line 3.8s ease-in-out infinite;
+}
+
+.op-success-badge {
+  animation: op-success-pop 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.op-success-ring {
+  /* Base opacity 0 so disabling the animation (prefers-reduced-motion)
+     leaves the ring invisible instead of stuck fully opaque — the
+     animation's 0% keyframe (0.35) only applies once it actually runs. */
+  opacity: 0;
+  animation: op-success-ring 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .op-range {
@@ -212,7 +250,9 @@
   .op-reveal,
   .op-mega-menu,
   .op-pulse-dot,
-  .op-flow-line {
+  .op-flow-line,
+  .op-success-badge,
+  .op-success-ring {
     animation: none;
   }
 }

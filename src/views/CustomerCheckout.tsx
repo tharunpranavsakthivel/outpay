@@ -1,12 +1,23 @@
 "use client";
 
 import { AlertTriangle, Check, Copy, Info } from "lucide-react";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Button } from "../components/ui/Button";
+import { PaymentSuccessBadge } from "../components/ui/PaymentSuccessBadge";
 import { StatusPill } from "../components/ui/StatusPill";
 import { useToast } from "../components/ui/Toast";
 import type { PublicCheckoutData } from "../lib/dashboard/types";
 import { NON_CUSTODIAL_DISCLAIMER } from "../lib/legal/compliance";
+
+/** Statuses that will never change again: once reached, polling stops. */
+const TERMINAL_STATUSES = new Set<PublicCheckoutData["status"]>([
+  "paid",
+  "expired",
+]);
+
+function isTerminalStatus(status: PublicCheckoutData["status"]): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
 
 const STATUS_CONFIG = {
   detected: {
@@ -46,6 +57,8 @@ export default function CustomerCheckout({
   const [checkout, setCheckout] = useState(initialData);
   const [copied, setCopied] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [showPaidCelebration, setShowPaidCelebration] = useState(false);
+  const previousStatusRef = useRef(initialData.status);
   const config = STATUS_CONFIG[checkout.status];
   const toast = useToast();
   const expiresAtMs = Date.parse(checkout.expiresAt);
@@ -55,23 +68,41 @@ export default function CustomerCheckout({
       : null;
 
   const refreshCheckout = useEffectEvent(async () => {
-    const response = await fetch(
-      `/api/public/checkouts/${checkout.publicToken}`,
-      {
-        cache: "no-store",
-      },
-    );
+    try {
+      const response = await fetch(
+        `/api/public/checkouts/${checkout.publicToken}`,
+        {
+          cache: "no-store",
+        },
+      );
 
-    if (!response.ok) {
-      return;
+      if (!response.ok) {
+        return;
+      }
+
+      const nextCheckout = (await response.json()) as PublicCheckoutData;
+      setCheckout(nextCheckout);
+    } catch {
+      // Network failure (offline, DNS blip, etc.) — the next interval tick,
+      // or the visibility/online listeners below, will retry. Swallowing
+      // this here is what prevents an unhandled rejection from killing the
+      // polling loop.
     }
-
-    const nextCheckout = (await response.json()) as PublicCheckoutData;
-    setCheckout(nextCheckout);
   });
 
+  // Detects the live pending/detected -> paid transition (as opposed to
+  // loading a page that is already paid) so the celebration animation plays
+  // exactly once, only for someone actually watching it happen.
   useEffect(() => {
-    if (checkout.status === "paid" || checkout.status === "expired") {
+    if (previousStatusRef.current !== "paid" && checkout.status === "paid") {
+      setShowPaidCelebration(true);
+    }
+
+    previousStatusRef.current = checkout.status;
+  }, [checkout.status]);
+
+  useEffect(() => {
+    if (isTerminalStatus(checkout.status)) {
       return;
     }
 
@@ -82,8 +113,45 @@ export default function CustomerCheckout({
     return () => window.clearInterval(intervalId);
   }, [checkout.status, refreshCheckout]);
 
+  // Background tabs throttle setInterval (sometimes to once a minute or
+  // less), so a payment that lands while this tab isn't focused can sit
+  // unreflected for a while even though the 5s poll above is "running".
+  // Refresh immediately whenever the tab regains focus instead of waiting
+  // for the throttled interval to catch up.
   useEffect(() => {
-    if (checkout.status === "paid" || checkout.status === "expired") {
+    if (isTerminalStatus(checkout.status)) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshCheckout();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [checkout.status, refreshCheckout]);
+
+  // Recovers promptly from a dropped connection instead of waiting up to
+  // 5s for the next scheduled poll once the browser reports it's back
+  // online.
+  useEffect(() => {
+    if (isTerminalStatus(checkout.status)) {
+      return;
+    }
+
+    const handleOnline = () => {
+      void refreshCheckout();
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [checkout.status, refreshCheckout]);
+
+  useEffect(() => {
+    if (isTerminalStatus(checkout.status)) {
       return;
     }
 
@@ -144,6 +212,12 @@ export default function CustomerCheckout({
         </div>
 
         <div className="p-6 flex flex-col gap-4.5">
+          {checkout.status === "paid" && (
+            <div className="flex justify-center">
+              <PaymentSuccessBadge animate={showPaidCelebration} />
+            </div>
+          )}
+
           <div className="text-center">
             <div className="text-xs text-foreground-lighter mb-1.5">
               Amount due
@@ -214,7 +288,10 @@ export default function CustomerCheckout({
             {config.payLabel}
           </Button>
 
-          <div className="flex items-center justify-between text-sm px-3.5 py-3 bg-background-surface-200 border border-border rounded-lg">
+          <div
+            className="flex items-center justify-between text-sm px-3.5 py-3 bg-background-surface-200 border border-border rounded-lg"
+            aria-live="polite"
+          >
             <span className="text-foreground-lighter">Payment status</span>
             <StatusPill variant={config.variant}>{config.label}</StatusPill>
           </div>
