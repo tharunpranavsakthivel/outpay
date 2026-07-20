@@ -114,6 +114,69 @@ describe("CustomerCheckout automatic status updates", () => {
     expect(fetchMock.mock.calls.length).toBe(callsAtPaid);
   });
 
+  it("ignores a stale response that resolves after a newer request already applied", async () => {
+    // Simulates a backgrounded tab queuing up two refresh triggers that
+    // both hit the network, where the *first* one issued is slow and
+    // resolves *after* the second — a real race that can happen once a
+    // tab is foregrounded and multiple listeners fire in a burst.
+    type Deferred = {
+      promise: Promise<Response>;
+      resolve: (value: Response) => void;
+    };
+    function deferred(): Deferred {
+      let resolve!: (value: Response) => void;
+      const promise = new Promise<Response>((res) => {
+        resolve = res;
+      });
+      return { promise, resolve };
+    }
+
+    const staleResponse = deferred();
+    const freshResponse = deferred();
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => staleResponse.promise)
+      .mockImplementationOnce(() => freshResponse.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCheckout(buildCheckout({ status: "waiting" }));
+
+    // First trigger (stale-to-be): the 5s poll tick.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Second trigger (the one that should win): connectivity returns.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // The second (newer) request resolves first, correctly reporting paid.
+    await act(async () => {
+      freshResponse.resolve({
+        json: () => Promise.resolve(buildCheckout({ status: "paid" })),
+        ok: true,
+      } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText("Paid")).toBeDefined();
+
+    // The stale first request finally resolves with outdated data. It must
+    // not be allowed to clobber the already-correct "paid" state.
+    await act(async () => {
+      staleResponse.resolve({
+        json: () => Promise.resolve(buildCheckout({ status: "waiting" })),
+        ok: true,
+      } as Response);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText("Paid")).toBeDefined();
+    expect(screen.queryByText("Waiting for payment")).toBeNull();
+  });
+
   it("clears its interval and event listeners on unmount", async () => {
     const addEventListenerSpy = vi.spyOn(window, "addEventListener");
     const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");

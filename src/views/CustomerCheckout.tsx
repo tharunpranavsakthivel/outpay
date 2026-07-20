@@ -59,6 +59,7 @@ export default function CustomerCheckout({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showPaidCelebration, setShowPaidCelebration] = useState(false);
   const previousStatusRef = useRef(initialData.status);
+  const latestRequestIdRef = useRef(0);
   const config = STATUS_CONFIG[checkout.status];
   const toast = useToast();
   const expiresAtMs = Date.parse(checkout.expiresAt);
@@ -68,6 +69,14 @@ export default function CustomerCheckout({
       : null;
 
   const refreshCheckout = useEffectEvent(async () => {
+    // A backgrounded tab can queue up several triggers (the 5s interval,
+    // the visibility listener, the online listener) that all fire in a
+    // burst once it's foregrounded again. Their responses can resolve out
+    // of order over a variable-latency connection — without this guard, a
+    // stale "still waiting" response arriving after a newer "paid" one
+    // would silently overwrite the correct state.
+    const requestId = ++latestRequestIdRef.current;
+
     try {
       const response = await fetch(
         `/api/public/checkouts/${checkout.publicToken}`,
@@ -81,6 +90,11 @@ export default function CustomerCheckout({
       }
 
       const nextCheckout = (await response.json()) as PublicCheckoutData;
+
+      if (requestId !== latestRequestIdRef.current) {
+        return;
+      }
+
       setCheckout(nextCheckout);
     } catch {
       // Network failure (offline, DNS blip, etc.) — the next interval tick,
