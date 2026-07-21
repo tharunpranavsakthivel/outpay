@@ -19,6 +19,7 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "../components/ui/Card";
@@ -29,7 +30,7 @@ import { WalletVerificationPanel } from "../components/wallet/WalletVerification
 
 const STEP_LABELS = ["Store details", "Wallet address", "Confirm"];
 const INLINE_ACTION_CLASS =
-  "bg-transparent border-0 p-0 font-inherit text-foreground font-medium cursor-pointer underline underline-offset-2";
+  "bg-transparent border-0 p-0 font-inherit text-primary font-medium cursor-pointer underline underline-offset-2 focus-visible:rounded-sm focus-visible:shadow-focus-ring";
 
 /**
  * Normalizes rate-limit errors from Better Auth into a user-facing message
@@ -103,26 +104,46 @@ function resolveAuthRedirect(candidate: string | null, fallbackPath: string) {
  *
  * @param children Page content rendered inside the shell.
  * @param width Optional shell width for wider onboarding content.
+ * @param trustMessage Optional product trust note shown below entry forms.
  * @returns Shared auth page chrome.
  */
 function AuthShell({
   children,
   width = 400,
+  trustMessage,
 }: {
   children: React.ReactNode;
   width?: number;
+  trustMessage?: string;
 }) {
   return (
     <div
       style={{ width, maxWidth: "100%" }}
       className="animate-[op-fade-in_0.25s_ease-out]"
     >
-      <div className="text-center mb-7">
-        <div className="text-[15px] font-semibold tracking-[-0.01em]">
+      <div className="mb-7 flex items-center justify-between gap-4">
+        <Link
+          href="/"
+          aria-label="Outpay home"
+          className="text-[15px] font-semibold tracking-[-0.01em] text-foreground no-underline"
+        >
           Outpay
-        </div>
+        </Link>
+        <span className="heading-meta text-foreground-lighter">
+          Merchant access
+        </span>
       </div>
       {children}
+      {trustMessage && (
+        <div className="mt-5 flex items-start gap-2 border-t border-border pt-4 text-xs leading-[1.55] text-foreground-lighter">
+          <ShieldCheck
+            size={14}
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 opacity-70"
+          />
+          <span>{trustMessage}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -136,7 +157,7 @@ function AuthShell({
  */
 function AuthPageFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground relative flex items-center justify-center px-5 py-16">
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-5 py-12 font-sans text-foreground sm:py-16">
       {children}
     </div>
   );
@@ -265,17 +286,20 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
 
   return (
     <AuthPageFrame>
-      <AuthShell>
+      <AuthShell trustMessage="Outpay is non-custodial. Funds go directly to your wallet.">
         <Card>
-          <CardHeader>
-            <CardTitle>Create your account</CardTitle>
-            <CardDescription>
+          <CardHeader className="gap-2 px-6 py-6">
+            <CardTitle className="!font-sans !text-[22px] !font-semibold !normal-case !tracking-[-0.02em]">
+              Create your account
+            </CardTitle>
+            <CardDescription className="leading-[1.55]">
               Accept USDC payments on Base in a few minutes.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3.5 border-b-0">
+          <CardContent className="flex flex-col gap-4 border-b-0 px-6 py-6">
             <Input
               label="Email"
+              size="medium"
               type="email"
               placeholder="you@store.com"
               value={email}
@@ -283,29 +307,30 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
             />
             <Input
               label="Password"
+              size="medium"
               type="password"
               placeholder="At least 8 characters"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <div className="flex items-start gap-2.5">
+            <div className="flex items-start gap-2.5 pt-0.5">
               <Checkbox
                 ariaLabel="Accept the Terms of Service and Privacy Policy"
                 checked={legalAccepted}
                 onChange={setLegalAccepted}
               />
-              <span className="text-[12.5px] text-foreground-light leading-[1.5]">
+              <span className="text-xs leading-[1.6] text-foreground-light">
                 I agree to the{" "}
                 <Link
                   href="/legal/terms"
-                  className="text-foreground underline underline-offset-2"
+                  className="text-primary underline underline-offset-2"
                 >
                   Terms of Service
                 </Link>{" "}
                 and{" "}
                 <Link
                   href="/legal/privacy"
-                  className="text-foreground underline underline-offset-2"
+                  className="text-primary underline underline-offset-2"
                 >
                   Privacy Policy
                 </Link>
@@ -313,10 +338,12 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
               </span>
             </div>
             {errorMessage && (
-              <div className="text-sm text-destructive">{errorMessage}</div>
+              <div role="alert" className="text-sm text-destructive">
+                {errorMessage}
+              </div>
             )}
           </CardContent>
-          <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
+          <CardFooter className="flex-col gap-3.5 border-t border-border px-6 pb-6 pt-5">
             <Button
               variant="primary"
               size="medium"
@@ -331,11 +358,11 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
             >
               {isPending ? "Creating account..." : "Sign up"}
             </Button>
-            <div className="text-center text-[12.5px] text-foreground-lighter">
+            <div className="text-center text-xs text-foreground-lighter">
               Already have an account?{" "}
               <AuthInlineLink href="/login">Log in</AuthInlineLink>
             </div>
-          </CardContent>
+          </CardFooter>
         </Card>
       </AuthShell>
     </AuthPageFrame>
@@ -390,15 +417,20 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
 
   return (
     <AuthPageFrame>
-      <AuthShell>
+      <AuthShell trustMessage="Outpay is non-custodial. Funds go directly to your wallet.">
         <Card>
-          <CardHeader>
-            <CardTitle>Log in</CardTitle>
-            <CardDescription>Welcome back.</CardDescription>
+          <CardHeader className="gap-2 px-6 py-6">
+            <CardTitle className="!font-sans !text-[22px] !font-semibold !normal-case !tracking-[-0.02em]">
+              Log in
+            </CardTitle>
+            <CardDescription className="leading-[1.55]">
+              Welcome back.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3.5 border-b-0">
+          <CardContent className="flex flex-col gap-4 border-b-0 px-6 py-6">
             <Input
               label="Email"
+              size="medium"
               type="email"
               placeholder="you@store.com"
               value={email}
@@ -407,6 +439,7 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
             <div>
               <Input
                 label="Password"
+                size="medium"
                 type="password"
                 placeholder="Your password"
                 value={password}
@@ -415,17 +448,19 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
               <div className="text-right mt-1.5">
                 <Link
                   href="/forgot"
-                  className="bg-transparent border-0 p-0 font-inherit text-xs text-foreground-lighter cursor-pointer underline underline-offset-2"
+                  className="bg-transparent border-0 p-0 font-inherit text-xs text-primary cursor-pointer underline underline-offset-2 focus-visible:rounded-sm focus-visible:shadow-focus-ring"
                 >
                   Forgot password?
                 </Link>
               </div>
             </div>
             {errorMessage && (
-              <div className="text-sm text-destructive">{errorMessage}</div>
+              <div role="alert" className="text-sm text-destructive">
+                {errorMessage}
+              </div>
             )}
           </CardContent>
-          <CardContent className="flex flex-col gap-3.5 border-b-0 pt-1">
+          <CardFooter className="flex-col gap-3.5 border-t border-border px-6 pb-6 pt-5">
             <Button
               variant="primary"
               size="medium"
@@ -435,11 +470,11 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
             >
               {isPending ? "Logging in..." : "Log in"}
             </Button>
-            <div className="text-center text-[12.5px] text-foreground-lighter">
+            <div className="text-center text-xs text-foreground-lighter">
               Don&apos;t have an account?{" "}
               <AuthInlineLink href="/signup">Sign up</AuthInlineLink>
             </div>
-          </CardContent>
+          </CardFooter>
         </Card>
       </AuthShell>
     </AuthPageFrame>
