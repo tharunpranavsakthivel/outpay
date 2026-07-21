@@ -301,7 +301,14 @@ function AccountActions({ user }: { user?: MarketingNavbarUser | null }) {
   const accountLabel = getAccountLabel(user);
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-3">
+      <Link
+        href="/dashboard"
+        className="inline-flex h-9 items-center gap-1.5 rounded-sm border border-primary/75 bg-primary px-3 text-sm font-medium text-foreground no-underline transition-all hover:brightness-95 focus-visible:shadow-focus-ring"
+      >
+        <LayoutDashboard size={15} aria-hidden="true" />
+        Dashboard
+      </Link>
       <button
         type="button"
         aria-label={`${accountLabel} account menu`}
@@ -559,6 +566,14 @@ export function MarketingNavbar({
               </div>
               {authenticatedUser ? (
                 <div className="grid gap-1 border-t border-border pt-3">
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-foreground no-underline hover:brightness-95"
+                  >
+                    <LayoutDashboard size={15} aria-hidden="true" />
+                    Dashboard
+                  </Link>
                   <Link
                     href="/settings"
                     onClick={() => setMobileMenuOpen(false)}

@@ -4,7 +4,7 @@
  * The menu must send users to the canonical hosted Outpay documentation.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarketingNavbar } from "@/components/layout/MarketingNavbar";
 
@@ -48,5 +48,37 @@ describe("Marketing Developers navigation", () => {
       "href",
       "https://docs.outpay.tech/docs/changelog",
     );
+  });
+});
+
+describe("Marketing authenticated navigation", () => {
+  it("shows dashboard links only for authenticated users", () => {
+    cleanup();
+    render(<MarketingNavbar />);
+
+    expect(screen.queryByRole("link", { name: /^Dashboard$/ })).toBeNull();
+
+    cleanup();
+    render(
+      <MarketingNavbar
+        authenticatedUser={{
+          name: "Alex Merchant",
+          email: "alex@example.com",
+        }}
+      />,
+    );
+
+    const dashboardLinks = screen.getAllByRole("link", {
+      name: /^Dashboard$/,
+    });
+    expect(dashboardLinks).toHaveLength(1);
+    expect(dashboardLinks[0]).toHaveAttribute("href", "/dashboard");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    const mobileDashboardLink = screen.getAllByRole("link", {
+      name: /^Dashboard$/,
+    })[1];
+    expect(mobileDashboardLink).toHaveAttribute("href", "/dashboard");
   });
 });
