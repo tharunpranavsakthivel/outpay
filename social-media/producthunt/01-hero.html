@@ -1,0 +1,133 @@
+<!--
+  Purpose: Product Hunt launch opener introducing Outpay's direct USDC checkout.
+  Exposes: A static 1270 x 760 launch frame with hero copy and product preview.
+  Dependencies: Outpay design-system CSS and local logo assets.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1270, initial-scale=1">
+  <title>Outpay — Accept USDC. Get paid directly.</title>
+  <link rel="stylesheet" href="../../design-system/styles.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; min-height: 100%; }
+    body { background: #e8e8e3; color: var(--foreground-default); font-family: var(--font-sans); }
+    .frame { position: relative; width: 1270px; height: 760px; overflow: hidden; margin: 0 auto; background: var(--background-default); }
+    .frame::before { content: ""; position: absolute; width: 720px; height: 420px; left: 420px; top: -140px; border-radius: 50%; background: radial-gradient(circle, color-mix(in oklch, var(--color-brand-900) 18%, transparent), transparent 70%); }
+    .topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 30px 52px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
+    .brand img { width: 24px; height: 24px; }
+    .launch-tag { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border: 1px solid var(--border-default); border-radius: 999px; color: var(--foreground-light); font-family: var(--font-mono); font-size: 11px; }
+    .launch-tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-brand-900); }
+    .hero { position: relative; z-index: 1; display: grid; grid-template-columns: 0.92fr 1.08fr; gap: 58px; padding: 36px 52px 0; }
+    .eyebrow { margin: 0 0 18px; color: var(--color-brand-1100); font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { max-width: 560px; margin: 0; font-size: 58px; line-height: 1.02; font-weight: 500; letter-spacing: -.055em; }
+    .lede { max-width: 450px; margin: 26px 0 0; color: var(--foreground-lighter); font-size: 17px; line-height: 1.55; }
+    .hero-actions { display: flex; align-items: center; gap: 12px; margin-top: 30px; }
+    .button { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); font: 500 13px var(--font-sans); color: var(--foreground-default); background: transparent; }
+    .button.primary { background: var(--color-brand-400); border-color: var(--color-brand-500); }
+    .button.ghost { color: var(--foreground-light); }
+    .proof { display: flex; gap: 24px; margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--border-default); color: var(--foreground-lighter); font-size: 11px; }
+    .proof span { display: inline-flex; align-items: center; gap: 7px; }
+    .proof b { width: 5px; height: 5px; border-radius: 50%; background: var(--color-brand-900); }
+    .preview-wrap { position: relative; min-height: 485px; }
+    .dashboard-card { position: absolute; right: 0; top: 18px; width: 560px; height: 358px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px rgb(19 42 33 / 12%); }
+    .dash-top { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 18px; border-bottom: 1px solid var(--border-default); }
+    .dash-top .mini-brand { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+    .mini-brand img { width: 17px; height: 17px; }
+    .dash-top .store { color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    .dash-body { display: grid; grid-template-columns: 102px 1fr; height: 310px; }
+    .dash-nav { padding: 14px 10px; border-right: 1px solid var(--border-default); }
+    .dash-nav div { margin-bottom: 5px; padding: 8px; border-radius: 5px; color: var(--foreground-lighter); font-size: 10px; }
+    .dash-nav .selected { color: var(--foreground-default); background: var(--accent); font-weight: 500; }
+    .dash-main { padding: 20px; }
+    .dash-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+    .dash-heading strong { display: block; font-size: 18px; font-weight: 500; }
+    .dash-heading small { display: block; margin-top: 3px; color: var(--foreground-lighter); font-size: 10px; }
+    .dash-button { padding: 7px 9px; border-radius: 4px; background: var(--color-brand-400); border: 1px solid var(--color-brand-500); font-size: 9px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 20px; }
+    .metric { padding: 12px; border: 1px solid var(--border-default); border-radius: 6px; }
+    .metric label { display: block; color: var(--foreground-lighter); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; }
+    .metric strong { display: block; margin-top: 8px; font-size: 17px; font-weight: 500; }
+    .activity { margin-top: 14px; padding: 14px; border: 1px solid var(--border-default); border-radius: 6px; }
+    .activity-head { display: flex; justify-content: space-between; color: var(--foreground-lighter); font: 9px var(--font-mono); text-transform: uppercase; }
+    .row { display: grid; grid-template-columns: 1.1fr 1fr .8fr .8fr; align-items: center; gap: 10px; padding: 12px 0 0; font-size: 10px; }
+    .row + .row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-default); }
+    .mono { color: var(--foreground-light); font-family: var(--font-mono); }
+    .status { display: inline-flex; width: fit-content; padding: 4px 7px; border-radius: 999px; color: var(--color-brand-1100); background: color-mix(in oklch, var(--color-brand-300) 55%, transparent); font-size: 9px; }
+    .checkout-card { position: absolute; left: 18px; bottom: 0; width: 236px; padding: 17px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--background-default); box-shadow: 0 18px 40px rgb(19 42 33 / 14%); }
+    .checkout-card .merchant { display: flex; align-items: center; gap: 7px; color: var(--foreground-light); font-size: 10px; }
+    .checkout-card .merchant span { width: 16px; height: 16px; border-radius: 5px; background: var(--color-brand-900); }
+    .checkout-card h2 { margin: 25px 0 2px; font-size: 23px; font-weight: 500; letter-spacing: -.03em; }
+    .checkout-card h2 small { color: var(--foreground-lighter); font-size: 11px; letter-spacing: 0; }
+    .checkout-card p { margin: 0; color: var(--foreground-lighter); font-size: 10px; }
+    .pay-line { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-default); color: var(--foreground-light); font-size: 10px; }
+    .pay-line b { color: var(--color-brand-1100); font-weight: 500; }
+    .checkout-btn { width: 100%; margin-top: 14px; padding: 9px; border: 1px solid var(--color-brand-500); border-radius: 4px; background: var(--color-brand-400); font: 500 10px var(--font-sans); }
+    .footnote { position: absolute; right: 52px; bottom: 25px; color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    /* Readability pass: launch copy is meant to be read at native 1270px output, so supporting text is intentionally larger than product UI defaults. */
+    .launch-tag { padding: 8px 12px; font-size: 12px; }
+    .eyebrow { font-size: 13px; }
+    h1 { font-size: 64px; }
+    .lede { max-width: 500px; font-size: 19px; line-height: 1.55; }
+    .button { height: 44px; padding: 0 18px; font-size: 14px; }
+    .proof { gap: 28px; font-size: 13px; }
+    .dashboard-card { width: 580px; height: 374px; }
+    .dash-top .mini-brand { font-size: 13px; }
+    .dash-top .store { font-size: 11px; }
+    .dash-nav div { font-size: 12px; }
+    .dash-heading strong { font-size: 20px; }
+    .dash-heading small { font-size: 12px; }
+    .dash-button { font-size: 11px; }
+    .metric label { font-size: 10px; }
+    .metric strong { font-size: 19px; }
+    .activity-head { font-size: 10px; }
+    .row { font-size: 11px; }
+    .checkout-card { width: 250px; padding: 20px; }
+    .checkout-card .merchant { font-size: 12px; }
+    .checkout-card h2 { font-size: 26px; }
+    .checkout-card p, .pay-line { font-size: 11px; }
+    .checkout-btn { font-size: 11px; }
+    .footnote { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar">
+      <div class="brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div>
+      <div class="launch-tag"><i></i> Product Hunt launch / 01</div>
+    </header>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">USDC checkout for ecommerce</p>
+        <h1>Accept USDC.<br>Get paid directly.</h1>
+        <p class="lede">A calm, non-custodial checkout for stablecoin payments on Base. Customers pay from their wallet. You receive it in yours.</p>
+        <div class="hero-actions"><span class="button primary">Create your first checkout</span><span class="button ghost">Read the docs <span aria-hidden="true">↗</span></span></div>
+        <div class="proof"><span><b></b>Wallet-to-wallet</span><span><b></b>USDC on Base</span><span><b></b>Signed webhooks</span></div>
+      </div>
+      <div class="preview-wrap" aria-label="Outpay dashboard and checkout preview">
+        <div class="dashboard-card">
+          <div class="dash-top"><div class="mini-brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><span class="store">ACME COFFEE CO.</span></div>
+          <div class="dash-body">
+            <aside class="dash-nav"><div class="selected">Dashboard</div><div>Checkouts</div><div>Payments</div><div>Developers</div><div>Settings</div></aside>
+            <div class="dash-main">
+              <div class="dash-heading"><div><strong>Dashboard</strong><small>Payment volume and checkout status</small></div><span class="dash-button">Create checkout</span></div>
+              <div class="metrics"><div class="metric"><label>Payment volume</label><strong>$48,204</strong></div><div class="metric"><label>Paid checkouts</label><strong>287</strong></div><div class="metric"><label>Webhook rate</label><strong>99.4%</strong></div></div>
+              <div class="activity"><div class="activity-head"><span>Recent checkouts</span><span>30 days</span></div><div class="row"><span class="mono">ch_8f2a91</span><span class="mono">0x71C7...976F</span><span>124.00 USDC</span><span class="status">Paid</span></div><div class="row"><span class="mono">ch_1b7e44</span><span class="mono">0x4A2f...11cD</span><span>58.50 USDC</span><span class="status">Paid</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="checkout-card">
+          <div class="merchant"><span></span>Acme Coffee Co.</div>
+          <h2>124.00 <small>USDC</small></h2><p>Order #4471 · Base network</p>
+          <div class="pay-line"><span>Payment status</span><b>Awaiting payment</b></div>
+          <div class="checkout-btn">Pay with wallet</div>
+        </div>
+      </div>
+    </section>
+    <div class="footnote">outpay.tech / built for direct payments</div>
+  </main>
+</body>
+</html>

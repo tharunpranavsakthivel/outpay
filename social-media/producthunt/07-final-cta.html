@@ -1,0 +1,44 @@
+<!--
+  Purpose: Product Hunt launch closer inviting merchants and developers to try Outpay.
+  Exposes: A static 1270 x 760 final call-to-action frame with launch summary.
+  Dependencies: Outpay design-system CSS and local logo assets.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=1270, initial-scale=1">
+  <title>Outpay — Build your next checkout on Outpay</title>
+  <link rel="stylesheet" href="../../design-system/styles.css">
+  <style>
+    * { box-sizing: border-box; } html, body { margin: 0; width: 100%; min-height: 100%; }
+    body { background: #e8e8e3; color: var(--foreground-default); font-family: var(--font-sans); }
+    .frame { width: 1270px; height: 760px; margin: 0 auto; overflow: hidden; position: relative; background: var(--background-default); }
+    .frame::before { content: ""; position: absolute; width: 850px; height: 500px; left: 190px; top: -215px; border-radius: 50%; background: radial-gradient(circle, color-mix(in oklch, var(--color-brand-900) 18%, transparent), transparent 70%); }
+    .topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 30px 52px; } .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; } .brand img { width: 24px; height: 24px; } .sequence { color: var(--foreground-lighter); font: 11px var(--font-mono); }
+    .center { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; padding-top: 74px; text-align: center; } .eyebrow { margin: 0 0 18px; color: var(--color-brand-1100); font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; } h1 { max-width: 730px; margin: 0; font-size: 60px; line-height: 1.02; font-weight: 500; letter-spacing: -.06em; } .lede { max-width: 500px; margin: 24px 0 0; color: var(--foreground-lighter); font-size: 17px; line-height: 1.55; }
+    .actions { display: flex; gap: 12px; margin-top: 30px; } .button { display: inline-flex; align-items: center; justify-content: center; height: 42px; padding: 0 17px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); color: var(--foreground-default); background: transparent; font: 500 13px var(--font-sans); } .button.primary { background: var(--color-brand-400); border-color: var(--color-brand-500); } .button span { margin-left: 8px; color: var(--foreground-lighter); font-weight: 400; }
+    .summary { display: grid; grid-template-columns: 1fr 1fr 1fr; width: 740px; margin-top: 76px; border: 1px solid var(--border-default); border-radius: 9px; background: var(--card); text-align: left; } .summary-item { min-height: 107px; padding: 19px 22px; } .summary-item + .summary-item { border-left: 1px solid var(--border-default); } .summary-item label { display: block; margin-bottom: 11px; color: var(--foreground-lighter); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; } .summary-item strong { display: block; font-size: 14px; font-weight: 500; } .summary-item p { margin: 5px 0 0; color: var(--foreground-lighter); font-size: 10px; line-height: 1.4; }
+    .bottom { position: absolute; left: 52px; right: 52px; bottom: 28px; display: flex; align-items: center; justify-content: space-between; color: var(--foreground-lighter); font: 10px var(--font-mono); } .bottom .mark { display: flex; align-items: center; gap: 8px; } .mark i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-brand-900); } .bottom a { color: var(--foreground-light); text-decoration: none; }
+    /* Readability pass: the closer uses presentation-size type while preserving generous breathing room. */
+    .center { padding-top: 64px; }
+    .eyebrow { font-size: 13px; }
+    h1 { max-width: 780px; font-size: 66px; }
+    .lede { max-width: 560px; font-size: 19px; line-height: 1.58; }
+    .actions { margin-top: 32px; }
+    .button { height: 46px; padding: 0 19px; font-size: 14px; }
+    .summary { width: 800px; margin-top: 56px; }
+    .summary-item { min-height: 116px; padding: 21px 23px; }
+    .summary-item label { font-size: 11px; }
+    .summary-item strong { font-size: 16px; }
+    .summary-item p { font-size: 12px; line-height: 1.5; }
+    .bottom { bottom: 24px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar"><div class="brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><div class="sequence">PRODUCT HUNT / 07 OF 07</div></header>
+    <section class="center"><p class="eyebrow">The next checkout layer</p><h1>Build your next checkout on Outpay.</h1><p class="lede">Accept USDC on Base with a checkout your customers understand and a payment flow your team can trust.</p><div class="actions"><span class="button primary">Get started <span>↗</span></span><span class="button">Explore the docs <span>↗</span></span></div><div class="summary"><div class="summary-item"><label>For customers</label><strong>Clear amount. Clear network.</strong><p>A payment experience that keeps the important details in view.</p></div><div class="summary-item"><label>For merchants</label><strong>Direct to your wallet.</strong><p>No custody, no settlement detour, no mystery state.</p></div><div class="summary-item"><label>For developers</label><strong>One API. Signed events.</strong><p>Create the link, listen for paid, keep your stack in control.</p></div></div></section>
+    <div class="bottom"><div class="mark"><i></i><span>USDC on Base · wallet-to-wallet · built for ecommerce</span></div><a href="https://outpay.tech">outpay.tech</a></div>
+  </main>
+</body>
+</html>

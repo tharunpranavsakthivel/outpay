@@ -1,0 +1,72 @@
+<!--
+  Purpose: Product Hunt story card presenting Outpay's developer API and webhook contract.
+  Exposes: A static 1270 x 760 API integration frame with code and event details.
+  Dependencies: Outpay design-system CSS and local logo assets.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=1270, initial-scale=1">
+  <title>Outpay — One request to start collecting</title>
+  <link rel="stylesheet" href="../../design-system/styles.css">
+  <style>
+    * { box-sizing: border-box; } html, body { margin: 0; width: 100%; min-height: 100%; }
+    body { background: #e8e8e3; color: var(--foreground-default); font-family: var(--font-sans); }
+    .frame { width: 1270px; height: 760px; margin: 0 auto; overflow: hidden; position: relative; background: var(--background-default); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 30px 52px; } .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; } .brand img { width: 24px; height: 24px; } .sequence { color: var(--foreground-lighter); font: 11px var(--font-mono); }
+    .content { display: grid; grid-template-columns: 0.86fr 1.14fr; gap: 72px; padding: 77px 112px 0 142px; }
+    .eyebrow { margin: 0 0 18px; color: var(--color-brand-1100); font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; } h1 { max-width: 410px; margin: 0; font-size: 49px; line-height: 1.05; font-weight: 500; letter-spacing: -.055em; } .copy { max-width: 390px; margin: 24px 0 0; color: var(--foreground-lighter); font-size: 16px; line-height: 1.6; }
+    .facts { display: grid; gap: 18px; margin-top: 50px; } .fact { display: flex; align-items: flex-start; gap: 10px; max-width: 370px; } .fact-mark { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 50%; background: var(--color-brand-300); color: var(--color-brand-1100); text-align: center; font: 600 10px/20px var(--font-mono); } .fact strong { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 500; } .fact p { margin: 0; color: var(--foreground-lighter); font-size: 11px; line-height: 1.45; }
+    .dev-card { width: 560px; margin-top: -19px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px rgb(19 42 33 / 11%); } .dev-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--border-default); } .dev-head strong { font-size: 12px; font-weight: 500; } .dev-head span { color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    .code-tabs { display: flex; gap: 20px; padding: 13px 18px 0; color: var(--foreground-lighter); font: 10px var(--font-mono); } .code-tabs .active { padding-bottom: 10px; color: var(--foreground-default); border-bottom: 1px solid var(--color-brand-900); }
+    pre { margin: 0 18px; padding: 17px 18px; overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: #17211d; color: #d9e9e1; font: 11px/1.68 var(--font-mono); } .punct { color: #9db9ad; } .key { color: #8ee1b4; } .string { color: #d5c590; } .comment { color: #70857b; }
+    .endpoint { display: flex; align-items: center; gap: 9px; margin: 16px 18px 0; } .method { padding: 5px 7px; border-radius: 4px; color: var(--color-brand-1100); background: var(--color-brand-300); font: 600 10px var(--font-mono); } .endpoint code { color: var(--foreground-light); font: 11px var(--font-mono); }
+    .webhook { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 10px; margin: 16px 18px 18px; padding: 12px; border: 1px solid var(--border-default); border-radius: 6px; } .webhook svg { width: 18px; height: 18px; color: var(--color-brand-1100); } .webhook strong { display: block; font-size: 11px; font-weight: 500; } .webhook p { margin: 3px 0 0; color: var(--foreground-lighter); font: 10px var(--font-mono); } .webhook b { padding: 4px 7px; border-radius: 999px; color: var(--color-brand-1100); background: color-mix(in oklch, var(--color-brand-300) 55%, transparent); font-size: 9px; font-weight: 500; }
+    .footer { position: absolute; left: 142px; right: 112px; bottom: 32px; display: flex; justify-content: space-between; padding-top: 16px; border-top: 1px solid var(--border-default); color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    /* Readability pass: code stays compact, but surrounding API guidance is lifted to presentation size. */
+    .content { gap: 60px; padding-top: 64px; }
+    .eyebrow { font-size: 13px; }
+    h1 { font-size: 55px; }
+    .copy { font-size: 18px; line-height: 1.58; }
+    .facts { gap: 21px; }
+    .fact strong { font-size: 14px; }
+    .fact p { font-size: 12px; line-height: 1.5; }
+    .dev-card { width: 600px; }
+    .dev-head strong { font-size: 13px; }
+    .dev-head span, .code-tabs { font-size: 11px; }
+    .endpoint code { font-size: 12px; }
+    pre { font-size: 12px; line-height: 1.68; }
+    .webhook strong { font-size: 12px; }
+    .webhook p { font-size: 11px; }
+    .footer { font-size: 11px; }
+    /* Vertical fit: keep the readable API code card and supporting facts clear of the footer. */
+    .content { padding-top: 48px; }
+    .facts { gap: 15px; margin-top: 22px; }
+    .fact p { line-height: 1.42; }
+    .dev-card { margin-top: -50px; }
+    pre { padding: 11px 16px; font-size: 11.5px; line-height: 1.35; }
+    .webhook { margin: 12px 18px 14px; padding: 10px; }
+    /* Keep the request method visually distinct from the implementation block below it. */
+    .endpoint { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar"><div class="brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><div class="sequence">PRODUCT HUNT / 05 OF 07</div></header>
+    <section class="content">
+      <div><p class="eyebrow">Developer API</p><h1>One request to start collecting.</h1><p class="copy">Create a checkout link from your existing stack, then listen for a signed event when the payment is confirmed.</p><div class="facts"><div class="fact"><div class="fact-mark">01</div><div><strong>Small surface area</strong><p>POST /v1/checkouts. Keep your storefront and your order system in control.</p></div></div><div class="fact"><div class="fact-mark">02</div><div><strong>Useful by default</strong><p>Amount, currency, network, label, and a checkout URL — nothing ornamental.</p></div></div><div class="fact"><div class="fact-mark">03</div><div><strong>Signed webhooks</strong><p>Build a reliable paid state with HMAC-SHA256 delivery.</p></div></div></div></div>
+      <div class="dev-card"><div class="dev-head"><strong>Create a checkout</strong><span>API KEYS / LIVE</span></div><div class="code-tabs"><span class="active">curl</span><span>javascript</span><span>python</span></div><div class="endpoint"><span class="method">POST</span><code>https://api.outpay.tech/v1/checkouts</code></div><pre><span class="comment"># create a USDC checkout on Base</span>
+curl -X POST https://api.outpay.tech/v1/checkouts \
+  -H <span class="string">"Authorization: Bearer OUTPAY_SECRET_KEY"</span> \
+  -H <span class="string">"Content-Type: application/json"</span> \
+  -d <span class="punct">'{</span>
+    <span class="key">"amount"</span><span class="punct">:</span> <span class="string">"124.00"</span><span class="punct">,</span>
+    <span class="key">"currency"</span><span class="punct">:</span> <span class="string">"USDC"</span><span class="punct">,</span>
+    <span class="key">"network"</span><span class="punct">:</span> <span class="string">"base"</span><span class="punct">,</span>
+    <span class="key">"label"</span><span class="punct">:</span> <span class="string">"Order #4471"</span>
+  <span class="punct">}'</span></pre><div class="webhook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg><div><strong>checkout.paid</strong><p>HMAC-SHA256 · X-Outpay-Signature</p></div><b>Ready</b></div></div>
+    </section>
+    <div class="footer"><span>Integrate the payment flow you already know.</span><span>outpay.tech/docs</span></div>
+  </main>
+</body>
+</html>

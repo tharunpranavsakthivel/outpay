@@ -18,12 +18,40 @@ async function readSource(relativePath: string): Promise<string> {
 
 describe("T-19 legal product surfaces", () => {
   it("ships substantive legal sections without the old placeholder marker", async () => {
-    const source = await readSource("src/views/LegalPage.tsx");
+    const pageSource = await readSource("src/views/LegalPage.tsx");
+    const termsSource = await readSource("src/lib/legal/terms-of-service.ts");
+    const privacySource = await readSource("src/lib/legal/privacy-policy.ts");
 
-    expect(source).not.toContain("[Placeholder");
-    expect(source).toContain("Data retention");
-    expect(source).toContain("prohibited");
-    expect(source).toContain("sanctions screening");
+    expect(pageSource).not.toContain("[Placeholder");
+    expect(termsSource).toContain("prohibited");
+    expect(termsSource).toContain(
+      "screen users and wallet addresses against sanctions and risk databases",
+    );
+    expect(privacySource).toContain("## 1. About this Privacy Policy");
+    expect(privacySource).toContain("## 39. Contact and complaints");
+    expect(privacySource).toContain("Data retention");
+  });
+
+  it("publishes the supplied full terms with one .tech contact address", async () => {
+    const source = await readSource("src/lib/legal/terms-of-service.ts");
+    const emailAddresses = source.match(/[A-Z0-9._%+-]+@outpay\.tech/gi) ?? [];
+
+    expect(source).toContain("## 1. About Outpay and these Terms");
+    expect(source).toContain("## 55. Contact");
+    expect(source).not.toContain("outpay.dev");
+    expect(source).not.toContain("security@outpay.tech");
+    expect(source).not.toContain("support@outpay.tech");
+    expect([...new Set(emailAddresses)]).toEqual(["legal@outpay.tech"]);
+  });
+
+  it("publishes the supplied full privacy policy with one .tech contact address", async () => {
+    const source = await readSource("src/lib/legal/privacy-policy.ts");
+    const emailAddresses = source.match(/[A-Z0-9._%+-]+@outpay\.tech/gi) ?? [];
+
+    expect(source).not.toContain("outpay.dev");
+    expect(source).not.toContain("security@outpay.tech");
+    expect(source).not.toContain("support@outpay.tech");
+    expect([...new Set(emailAddresses)]).toEqual(["legal@outpay.tech"]);
   });
 
   it("includes the shared non-custodial disclaimer on every required surface", async () => {

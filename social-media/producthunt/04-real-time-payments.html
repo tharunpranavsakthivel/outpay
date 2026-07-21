@@ -1,0 +1,60 @@
+<!--
+  Purpose: Product Hunt story card explaining Outpay's real-time on-chain payment verification.
+  Exposes: A static 1270 x 760 payment event timeline and confirmation state.
+  Dependencies: Outpay design-system CSS and local logo assets.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=1270, initial-scale=1">
+  <title>Outpay — Payment status, without the guesswork</title>
+  <link rel="stylesheet" href="../../design-system/styles.css">
+  <style>
+    * { box-sizing: border-box; } html, body { margin: 0; width: 100%; min-height: 100%; }
+    body { background: #e8e8e3; color: var(--foreground-default); font-family: var(--font-sans); }
+    .frame { width: 1270px; height: 760px; margin: 0 auto; overflow: hidden; position: relative; background: var(--background-default); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 30px 52px; } .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; } .brand img { width: 24px; height: 24px; } .sequence { color: var(--foreground-lighter); font: 11px var(--font-mono); }
+    .content { display: grid; grid-template-columns: 0.86fr 1.14fr; gap: 90px; padding: 75px 116px 0 142px; }
+    .eyebrow { margin: 0 0 18px; color: var(--color-brand-1100); font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+    h1 { max-width: 400px; margin: 0; font-size: 49px; line-height: 1.05; font-weight: 500; letter-spacing: -.055em; } .copy { max-width: 390px; margin: 24px 0 0; color: var(--foreground-lighter); font-size: 16px; line-height: 1.6; }
+    .micro { display: grid; grid-template-columns: 18px 1fr; gap: 10px; margin-top: 55px; max-width: 360px; } .micro svg { width: 17px; height: 17px; color: var(--color-brand-1100); } .micro strong { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 500; } .micro p { margin: 0; color: var(--foreground-lighter); font-size: 12px; line-height: 1.5; }
+    .event-card { width: 522px; margin-top: -19px; padding: 20px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px rgb(19 42 33 / 11%); }
+    .event-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 17px; border-bottom: 1px solid var(--border-default); } .event-label { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 500; } .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-brand-900); } .event-head span { color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    .payment-amount { padding: 26px 0 22px; } .payment-amount small { display: block; margin-bottom: 6px; color: var(--foreground-lighter); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; } .payment-amount strong { font-size: 33px; font-weight: 500; letter-spacing: -.04em; } .payment-amount strong span { color: var(--foreground-lighter); font-size: 15px; letter-spacing: 0; }
+    .timeline { position: relative; margin-left: 4px; padding-left: 27px; } .timeline::before { content: ""; position: absolute; left: 7px; top: 10px; bottom: 23px; width: 1px; background: var(--border-default); } .step { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-bottom: 25px; } .step:last-child { padding-bottom: 0; } .step::before { content: ""; position: absolute; left: -24px; top: 4px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--background-default); background: var(--color-brand-900); box-shadow: 0 0 0 1px var(--color-brand-600); } .step.pending::before { background: var(--background-default); border-color: var(--color-amber-700); box-shadow: 0 0 0 1px var(--color-amber-700); }
+    .step strong { display: block; font-size: 12px; font-weight: 500; } .step p { margin: 5px 0 0; color: var(--foreground-lighter); font-size: 10px; line-height: 1.45; } .step time { color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    .tx { display: flex; align-items: center; justify-content: space-between; margin-top: 23px; padding: 12px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--muted); } .tx span { color: var(--foreground-lighter); font-size: 10px; } .tx code { color: var(--foreground-light); font: 10px var(--font-mono); }
+    .bottom-rule { position: absolute; left: 142px; right: 116px; bottom: 32px; display: flex; justify-content: space-between; padding-top: 16px; border-top: 1px solid var(--border-default); color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    /* Readability pass: the payment state is the focal point, so timeline labels are sized for quick scanning. */
+    .content { gap: 72px; padding-top: 60px; }
+    .eyebrow { font-size: 13px; }
+    h1 { font-size: 54px; }
+    .copy { font-size: 18px; line-height: 1.58; }
+    .micro strong { font-size: 15px; }
+    .micro p { font-size: 13px; line-height: 1.55; }
+    .event-card { width: 560px; padding: 24px; }
+    .event-label { font-size: 15px; }
+    .event-head span { font-size: 11px; }
+    .payment-amount { padding: 29px 0 25px; }
+    .payment-amount small { font-size: 11px; }
+    .payment-amount strong { font-size: 40px; }
+    .step strong { font-size: 14px; }
+    .step p { font-size: 12px; line-height: 1.5; }
+    .step time { font-size: 11px; }
+    .tx { padding: 14px; }
+    .tx span { font-size: 12px; }
+    .tx code { font-size: 11px; }
+    .bottom-rule { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar"><div class="brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><div class="sequence">PRODUCT HUNT / 04 OF 07</div></header>
+    <section class="content">
+      <div><p class="eyebrow">Real-time payments</p><h1>Payment status, without the guesswork.</h1><p class="copy">Outpay watches the Base transaction, verifies the exact payment, and tells your store when it is safe to move on.</p><div class="micro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg><div><strong>Verified on-chain</strong><p>Every paid state maps back to a transaction hash, amount, recipient, and confirmation on Base.</p></div></div></div>
+      <div class="event-card"><div class="event-head"><div class="event-label"><span class="live-dot"></span>Payment detected on Base</div><span>CH_8F2A91B4</span></div><div class="payment-amount"><small>Confirmed payment</small><strong>124.00 <span>USDC</span></strong></div><div class="timeline"><div class="step"><div><strong>Payment matched</strong><p>Exact amount received by merchant wallet</p></div><time>18:42:09</time></div><div class="step"><div><strong>Transaction verified</strong><p>USDC transfer confirmed on Base</p></div><time>18:42:10</time></div><div class="step pending"><div><strong>Final confirmation</strong><p>Waiting for 1 more confirmation before webhook delivery</p></div><time>18:42:11</time></div></div><div class="tx"><span>Transaction hash</span><code>0x8f2a91b4...c91d4 ↗</code></div></div>
+    </section>
+    <div class="bottom-rule"><span>Detect → verify → confirm → notify</span><span>outpay.tech</span></div>
+  </main>
+</body>
+</html>

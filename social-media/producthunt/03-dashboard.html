@@ -1,0 +1,85 @@
+<!--
+  Purpose: Product Hunt story card showing the merchant operations view.
+  Exposes: A static 1270 x 760 dashboard composition with metrics and recent checkouts.
+  Dependencies: Outpay design-system CSS and local logo assets.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=1270, initial-scale=1">
+  <title>Outpay — Every payment, in one calm view</title>
+  <link rel="stylesheet" href="../../design-system/styles.css">
+  <style>
+    * { box-sizing: border-box; } html, body { margin: 0; width: 100%; min-height: 100%; }
+    body { background: #e8e8e3; color: var(--foreground-default); font-family: var(--font-sans); }
+    .frame { width: 1270px; height: 760px; margin: 0 auto; overflow: hidden; position: relative; background: var(--background-default); }
+    .topbar { height: 90px; display: flex; align-items: center; justify-content: space-between; padding: 0 52px; border-bottom: 1px solid var(--border-default); }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; } .brand img { width: 24px; height: 24px; }
+    .sequence { color: var(--foreground-lighter); font: 11px var(--font-mono); }
+    .story { display: grid; grid-template-columns: 310px 1fr; height: 670px; }
+    .story-copy { padding: 100px 38px 0 66px; border-right: 1px solid var(--border-default); }
+    .eyebrow { margin: 0 0 17px; color: var(--color-brand-1100); font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: 42px; line-height: 1.08; font-weight: 500; letter-spacing: -.05em; }
+    .copy { margin: 23px 0 0; color: var(--foreground-lighter); font-size: 15px; line-height: 1.6; }
+    .aside-note { margin-top: 50px; padding-top: 16px; border-top: 1px solid var(--border-default); color: var(--foreground-lighter); font-size: 11px; line-height: 1.5; }
+    .aside-note strong { display: block; margin-bottom: 6px; color: var(--foreground-default); font-weight: 500; }
+    .app { margin: 44px 52px 0 42px; height: 540px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--card); box-shadow: var(--shadow-xs); }
+    .app-head { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 18px; border-bottom: 1px solid var(--border-default); }
+    .app-head .mini-brand { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; } .mini-brand img { width: 17px; height: 17px; }
+    .store { color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    .app-body { display: grid; grid-template-columns: 142px 1fr; height: 488px; }
+    .nav { padding: 17px 10px; border-right: 1px solid var(--border-default); } .nav-label { margin: 3px 9px 11px; color: var(--foreground-lighter); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
+    .nav-item { display: flex; align-items: center; gap: 8px; margin: 2px 0; padding: 9px 10px; border-radius: 5px; color: var(--foreground-lighter); font-size: 11px; } .nav-item.selected { color: var(--foreground-default); background: var(--accent); font-weight: 500; } .nav-dot { width: 6px; height: 6px; border-radius: 2px; border: 1px solid currentColor; } .selected .nav-dot { background: var(--color-brand-900); border-color: var(--color-brand-900); }
+    .main { padding: 26px 28px; } .main-title { display: flex; align-items: flex-start; justify-content: space-between; } .main-title h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.02em; } .main-title p { margin: 5px 0 0; color: var(--foreground-lighter); font-size: 10px; } .create { padding: 8px 11px; border: 1px solid var(--color-brand-500); border-radius: 4px; background: var(--color-brand-400); font-size: 10px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 24px; } .metric { min-height: 83px; padding: 12px; border: 1px solid var(--border-default); border-radius: 6px; } .metric label { display: block; color: var(--foreground-lighter); font: 9px var(--font-mono); line-height: 1.35; text-transform: uppercase; letter-spacing: .04em; } .metric strong { display: block; margin-top: 9px; font-size: 20px; font-weight: 500; letter-spacing: -.03em; } .metric small { display: block; margin-top: 4px; color: var(--foreground-lighter); font-size: 9px; }
+    .table { margin-top: 18px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; } .table-head, .table-row { display: grid; grid-template-columns: 1.12fr 1.08fr .9fr .75fr; align-items: center; gap: 13px; padding: 11px 13px; } .table-head { color: var(--foreground-lighter); background: var(--muted); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .04em; } .table-row { min-height: 55px; border-top: 1px solid var(--border-default); font-size: 10px; } .table-row .mono { color: var(--foreground-light); font: 10px var(--font-mono); } .status { display: inline-flex; width: fit-content; padding: 4px 7px; border-radius: 999px; color: var(--color-brand-1100); background: color-mix(in oklch, var(--color-brand-300) 55%, transparent); font-size: 9px; } .status.pending { color: var(--color-amber-1100); background: color-mix(in oklch, var(--color-amber-300) 55%, transparent); }
+    .table-footer { display: flex; justify-content: space-between; padding: 12px 13px; border-top: 1px solid var(--border-default); color: var(--foreground-lighter); font-size: 9px; }
+    .footer { position: absolute; left: 362px; right: 52px; bottom: 22px; display: flex; justify-content: space-between; color: var(--foreground-lighter); font: 10px var(--font-mono); }
+    /* Readability pass: merchant-facing dashboard labels use a comfortable scan size instead of tiny UI chrome. */
+    .story { grid-template-columns: 330px 1fr; }
+    .story-copy { padding-top: 86px; padding-right: 32px; }
+    .eyebrow { font-size: 13px; }
+    h1 { font-size: 48px; }
+    .copy { font-size: 17px; line-height: 1.58; }
+    .aside-note { font-size: 13px; line-height: 1.55; }
+    .app { margin-left: 34px; }
+    .app-head .mini-brand { font-size: 13px; }
+    .store { font-size: 11px; }
+    .app-body { grid-template-columns: 160px 1fr; }
+    .nav { padding-top: 20px; }
+    .nav-label { font-size: 10px; }
+    .nav-item { padding: 10px; font-size: 12px; }
+    .main { padding: 30px; }
+    .main-title h2 { font-size: 24px; }
+    .main-title p { font-size: 12px; }
+    .create { font-size: 11px; }
+    .metric label { font-size: 10px; }
+    .metric strong { font-size: 22px; }
+    .metric small { font-size: 10px; }
+    .table-head { font-size: 10px; }
+    .table-row { min-height: 59px; font-size: 12px; }
+    .table-row .mono { font-size: 11px; }
+    .table-footer { font-size: 10px; }
+    .footer { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar"><div class="brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><div class="sequence">PRODUCT HUNT / 03 OF 07</div></header>
+    <section class="story">
+      <div class="story-copy"><p class="eyebrow">Merchant dashboard</p><h1>Every payment, in one calm view.</h1><p class="copy">Know what is paid, what is confirming, and what needs attention — without stitching together block explorers and spreadsheets.</p><div class="aside-note"><strong>Designed for the daily check-in.</strong> Clean metrics, precise amounts, and a recent activity table that stays close to the payment truth.</div></div>
+      <div class="app">
+        <div class="app-head"><div class="mini-brand"><img src="../../public/logo/light-32.png" alt="">Outpay</div><div class="store">ACME COFFEE CO. / BASE</div></div>
+        <div class="app-body">
+          <aside class="nav"><div class="nav-label">Workspace</div><div class="nav-item selected"><span class="nav-dot"></span>Dashboard</div><div class="nav-item"><span class="nav-dot"></span>Checkouts</div><div class="nav-item"><span class="nav-dot"></span>Payments</div><div class="nav-item"><span class="nav-dot"></span>Developers</div><div class="nav-item"><span class="nav-dot"></span>Settings</div></aside>
+          <div class="main"><div class="main-title"><div><h2>Dashboard</h2><p>Payment volume and checkout status across your store.</p></div><div class="create">Create checkout</div></div>
+            <div class="metrics"><div class="metric"><label>Payment volume (30d)</label><strong>$48,204</strong><small>312 checkouts</small></div><div class="metric"><label>Paid checkouts</label><strong>287</strong><small>92% completion</small></div><div class="metric"><label>Pending checkouts</label><strong>9</strong><small>Awaiting confirmation</small></div><div class="metric"><label>Webhook success</label><strong>99.4%</strong><small>3 retried · 0 dropped</small></div></div>
+            <div class="table"><div class="table-head"><span>Checkout</span><span>Customer wallet</span><span>Amount</span><span>Status</span></div><div class="table-row"><span class="mono">ch_8f2a91b4</span><span class="mono">0x71C7...976F</span><span>124.00 USDC</span><span class="status">Paid</span></div><div class="table-row"><span class="mono">ch_1b7e44a9</span><span class="mono">0x4A2f...11cD</span><span>58.50 USDC</span><span class="status pending">Pending</span></div><div class="table-row"><span class="mono">ch_9d3c02f7</span><span class="mono">0xE81b...f7A2</span><span>312.00 USDC</span><span class="status">Paid</span></div><div class="table-footer"><span>Showing 3 of 312 checkouts</span><span>View all payments ↗</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div class="footer"><span>Clarity is a feature.</span><span>outpay.tech</span></div>
+  </main>
+</body>
+</html>
