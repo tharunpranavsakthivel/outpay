@@ -100,6 +100,107 @@ function resolveAuthRedirect(candidate: string | null, fallbackPath: string) {
 }
 
 /**
+ * GoogleIcon renders the compact multicolor Google mark used in the OAuth
+ * action without adding a separate icon-package dependency.
+ *
+ * @returns Decorative SVG icon for the Google sign-in button.
+ */
+function GoogleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path
+        fill="#4285F4"
+        d="M21.35 12.27c0-.71-.06-1.39-.18-2.05H12v3.88h5.24a4.48 4.48 0 0 1-1.94 2.94v2.44h3.14c1.84-1.69 2.91-4.18 2.91-7.21Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 21.6c2.63 0 4.84-.87 6.45-2.35l-3.14-2.44c-.87.58-1.98.92-3.31.92-2.54 0-4.69-1.72-5.46-4.03H3.3v2.52A9.74 9.74 0 0 0 12 21.6Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M6.54 13.7a5.85 5.85 0 0 1 0-3.4V7.78H3.3a9.6 9.6 0 0 0 0 8.44l3.24-2.52Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 6.27c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.84 3.38 14.63 2.4 12 2.4a9.74 9.74 0 0 0-8.7 5.38l3.24 2.52c.77-2.31 2.92-4.03 5.46-4.03Z"
+      />
+    </svg>
+  );
+}
+
+/**
+ * GoogleAuthButton starts the Better Auth Google OAuth flow and reports
+ * provider failures through the existing toast surface.
+ *
+ * @param callbackURL Redirect for an existing user after successful OAuth.
+ * @param newUserCallbackURL Redirect for a newly created user.
+ * @param errorCallbackURL Redirect used when Google OAuth fails.
+ * @param label Button label shown before the redirect begins.
+ * @param disabled Whether the parent form currently prevents OAuth signup.
+ * @returns Design-system button that starts Google authentication.
+ */
+function GoogleAuthButton({
+  callbackURL,
+  newUserCallbackURL,
+  errorCallbackURL,
+  label,
+  disabled = false,
+}: {
+  callbackURL: string;
+  newUserCallbackURL: string;
+  errorCallbackURL: string;
+  label: string;
+  disabled?: boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const toast = useToast();
+
+  const submitGoogleSignIn = () => {
+    startTransition(async () => {
+      try {
+        const response = await authClient.signIn.social({
+          callbackURL,
+          errorCallbackURL,
+          newUserCallbackURL,
+          provider: "google",
+        });
+
+        if (response.error) {
+          toast.error(
+            getAuthErrorMessage(
+              response.error,
+              "Unable to continue with Google.",
+            ),
+          );
+        }
+      } catch (error) {
+        toast.error(
+          getAuthErrorMessage(error, "Unable to continue with Google."),
+        );
+      }
+    });
+  };
+
+  return (
+    <Button
+      variant="default"
+      size="medium"
+      block
+      disabled={disabled || isPending}
+      icon={<GoogleIcon />}
+      onClick={submitGoogleSignIn}
+    >
+      {isPending ? "Connecting..." : label}
+    </Button>
+  );
+}
+
+/**
  * AuthShell renders the shared centered shell used by all auth-entry pages.
  *
  * @param children Page content rendered inside the shell.
@@ -342,6 +443,18 @@ export function SignupScreen({ returnTo }: { returnTo?: string | null }) {
                 {errorMessage}
               </div>
             )}
+            <div className="flex items-center gap-3 text-xs text-foreground-lighter">
+              <div aria-hidden="true" className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <div aria-hidden="true" className="h-px flex-1 bg-border" />
+            </div>
+            <GoogleAuthButton
+              callbackURL={resolveAuthRedirect(returnTo ?? null, "/dashboard")}
+              newUserCallbackURL="/onboarding"
+              errorCallbackURL="/signup"
+              label="Sign up with Google"
+              disabled={!legalAccepted}
+            />
           </CardContent>
           <CardFooter className="flex-col gap-3.5 border-t border-border px-6 pb-6 pt-5">
             <Button
@@ -459,6 +572,17 @@ export function LoginScreen({ returnTo }: { returnTo?: string | null }) {
                 {errorMessage}
               </div>
             )}
+            <div className="flex items-center gap-3 text-xs text-foreground-lighter">
+              <div aria-hidden="true" className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <div aria-hidden="true" className="h-px flex-1 bg-border" />
+            </div>
+            <GoogleAuthButton
+              callbackURL={resolveAuthRedirect(returnTo ?? null, "/dashboard")}
+              newUserCallbackURL="/onboarding"
+              errorCallbackURL="/login"
+              label="Continue with Google"
+            />
           </CardContent>
           <CardFooter className="flex-col gap-3.5 border-t border-border px-6 pb-6 pt-5">
             <Button

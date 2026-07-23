@@ -26,6 +26,8 @@ const AUTH_BASE_URL =
 const AUTH_ORIGIN = new URL(AUTH_BASE_URL).origin;
 
 const AUTH_SECRET = process.env.BETTER_AUTH_SECRET?.trim();
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
 // Railway's public edge forwards the client address in X-Real-IP. Keep the
 // standard X-Forwarded-For fallback for local reverse proxies, but do not
@@ -410,5 +412,14 @@ export const auth = betterAuth({
   },
   plugins: [nextCookies()],
   secret: AUTH_SECRET,
+  socialProviders:
+    GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET
+      ? {
+          google: {
+            clientId: GOOGLE_CLIENT_ID,
+            clientSecret: GOOGLE_CLIENT_SECRET,
+          },
+        }
+      : undefined,
   trustedOrigins: [AUTH_ORIGIN],
 });

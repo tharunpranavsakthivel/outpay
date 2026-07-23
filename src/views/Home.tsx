@@ -330,7 +330,7 @@ export default function Home({ authenticatedUser }: HomeProps) {
             </p>
             <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center">
               <Link
-                href="/signup"
+                href={authenticatedUser ? "/dashboard" : "/signup"}
                 className="h-[38px] px-4 text-sm gap-2 inline-flex items-center justify-center font-sans font-body whitespace-nowrap transition-all duration-200 ease-out cursor-pointer rounded-sm bg-primary text-foreground border border-primary/75 hover:brightness-95 no-underline"
               >
                 Sign up
