@@ -8,6 +8,7 @@ import {
 import Link from "next/link";
 import type React from "react";
 import type { NavId } from "../../lib/nav";
+import { BrandWordmark } from "../ui/BrandWordmark";
 import { UserAvatar } from "../ui/UserAvatar";
 
 const ICONS: Record<
@@ -62,9 +63,7 @@ export function DashboardSidebar({
           height={24}
           className="h-6 w-6 shrink-0"
         />
-        <span className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-          Outpay
-        </span>
+        <BrandWordmark className="text-[15px] font-semibold tracking-[-0.01em] text-foreground" />
       </Link>
       <nav className="flex gap-0.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
         {ITEMS.map((item) => {

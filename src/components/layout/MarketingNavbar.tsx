@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useState, useTransition } from "react";
 import { authClient } from "@/lib/auth/client";
+import { BrandWordmark } from "../ui/BrandWordmark";
 
 const PRODUCT_ITEMS = [
   {
@@ -410,7 +411,7 @@ export function MarketingNavbar({
                 height={24}
                 className="h-6 w-6 shrink-0"
               />
-              Outpay
+              <BrandWordmark />
             </Link>
             <div className="hidden items-center gap-7 lg:flex">
               <button

@@ -2,6 +2,7 @@
 
 import { ServerCrash } from "lucide-react";
 import { useState } from "react";
+import { BrandWordmark } from "../components/ui/BrandWordmark";
 import { Button } from "../components/ui/Button";
 
 /** Generic 500 error page. */
@@ -17,7 +18,7 @@ export default function Error500() {
   return (
     <div className="min-h-screen bg-background font-sans text-foreground flex flex-col items-center justify-center px-5 py-16 gap-5 text-center">
       <div className="text-[15px] font-semibold tracking-[-0.01em] mb-2">
-        Outpay
+        <BrandWordmark />
       </div>
       <div className="w-[52px] h-[52px] rounded-2xl bg-accent flex items-center justify-center">
         <ServerCrash size={24} className="opacity-70" />

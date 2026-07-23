@@ -3,6 +3,7 @@
 import { ChevronRight, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { MarketingNavbar } from "../components/layout/MarketingNavbar";
+import { BrandWordmark } from "../components/ui/BrandWordmark";
 import { Button } from "../components/ui/Button";
 
 /**
@@ -50,7 +51,7 @@ export default function MarketingNavbarShowcase() {
         <div className="w-[390px] border border-border rounded-2xl overflow-hidden shadow-xs bg-background">
           <div className="flex items-center justify-between h-[60px] px-5 border-b border-border">
             <div className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-              Outpay
+              <BrandWordmark />
             </div>
             <button
               type="button"

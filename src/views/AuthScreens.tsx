@@ -14,6 +14,7 @@ import {
   hasApiError,
 } from "@/lib/validation/client";
 import type { WalletSignatureProof } from "@/lib/wallet/browser-wallet";
+import { BrandWordmark } from "../components/ui/BrandWordmark";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -225,10 +226,10 @@ function AuthShell({
       <div className="mb-7 flex items-center justify-between gap-4">
         <Link
           href="/"
-          aria-label="Outpay home"
+          aria-label="Outpay beta home"
           className="text-[15px] font-semibold tracking-[-0.01em] text-foreground no-underline"
         >
-          Outpay
+          <BrandWordmark />
         </Link>
         <span className="heading-meta text-foreground-lighter">
           Merchant access

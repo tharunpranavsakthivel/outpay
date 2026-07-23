@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NON_CUSTODIAL_DISCLAIMER } from "../../lib/legal/compliance";
+import { BrandWordmark } from "../ui/BrandWordmark";
 
 const FOOTER_COLUMNS = [
   {
@@ -50,7 +51,7 @@ export function MarketingFooter() {
               height={24}
               className="h-6 w-6 shrink-0"
             />
-            Outpay
+            <BrandWordmark />
           </div>
           {FOOTER_COLUMNS.map((col) => (
             <div key={col.title} className="flex flex-col gap-3.5">
